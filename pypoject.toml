@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mvtfermitools"
+version = "0.1.0"
+authors = [
+  { name = "Suman Bala", email = "sbala@usra.edu" },
+  { name = "Narayana Bhat" }
+]
+description = "A Python package for Minimum Variability Timescale (MVT) analysis, tailored for Fermi GBM data."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache License 2.0" }
+
+keywords = [
+  "astronomy", "gamma-ray bursts", "GRB", "time series analysis", "variability", "MVT", "Fermi"
+]
+
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+  "Topic :: Scientific/Engineering :: Astronomy",
+  "License :: OSI Approved :: Apache Software License"
+]
+
+dependencies = [
+  'astro-gdt @ git+https://github.com/USRA-STI/gdt-core.git',
+  'astro-gdt-fermi @ git+https://github.com/USRA-STI/gdt-fermi.git',
+  "numpy>=1.20",
+  "scipy>=1.7",
+  "matplotlib>=3.4",
+  "pandas",
+  "PyPDF2>=3.0.0",
+  "termcolor",
+  "sigfig",
+  "requests",
+  "jupyter",
+  "notebook"
+]
+
+[project.scripts]
+MVTfermi = "MVTfermi.mvt_parallel_fermi:main"
+
+[project.urls]
+Homepage = "https://your_project_homepage_or_repo_link"
+# Issues = "https://your_project_issues_link"
