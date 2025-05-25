@@ -15,3 +15,5 @@ en_hi: 1000
 cores: 2
 data_path: '/Users/sbala/work/gdt_dev2/mvt/'
 output_path: '/Users/sbala/work/gdt_dev2/mvt/'
+all_delta: False
+all_fig: True

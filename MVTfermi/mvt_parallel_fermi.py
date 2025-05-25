@@ -12,9 +12,9 @@ import numpy as np
 import csv
 import pandas as pd
 #from find_opt_res_pap import find_optimum_resolution_diff, convert_res_coarse
-from mvt_analysis import run_mvt_analysis
-from evolve_opt_res_fermi import compute_grb_time_bounds
-from trigger_process import trigger_process
+from .mvt_analysis import run_mvt_analysis
+from .evolve_opt_res_fermi import compute_grb_time_bounds
+from .trigger_process import trigger_process
 
 #from multiprocessing import Pool, cpu_count
 #from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -48,6 +48,7 @@ def main():
     cores = config_trigger['cores']
     data_path = config_trigger['data_path']
     output_path = config_trigger['output_path']
+    all_delta = config_trigger['all_delta']
 
     dets = config_trigger['det_list']
     T90 = 4  # or config_trigger['T90']
@@ -59,8 +60,6 @@ def main():
 
     temp_trigger_directory = "bn" + trigger_number
     trigger_directory = os.path.join(data_path, temp_trigger_directory)
-
-    
 
     t_del = 0.064 if T90 <= 4.0 else 1.024
 
@@ -125,7 +124,8 @@ def main():
         f1,
         f2,
         en,
-        output_folder=output_path
+        output_folder=output_path,
+        all_delta=all_delta,
     )
 
 

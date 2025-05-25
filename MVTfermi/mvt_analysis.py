@@ -16,9 +16,9 @@ from matplotlib.lines import Line2D
 from matplotlib import rcParams
 from scipy.interpolate import interp1d
 #from find_opt_res_pap import find_optimum_resolution_diff, convert_res_coarse
-from evolve_opt_res_fermi import evolve_optimum_resolution_diff
+from .evolve_opt_res_fermi import evolve_optimum_resolution_diff
 
-from find_opt_res_fermi import ExponentialFloat
+from .find_opt_res_fermi import ExponentialFloat
 
 
 
@@ -169,6 +169,7 @@ def grb_mvt_significance(
     f1,
     f2,
     en,
+    all_fig=False
 ):
     print(f'\n\n$$$$$$$$$  Staring MVT calculation for delt = {delt} $$$$$$$$$$$$')
     
@@ -192,7 +193,8 @@ def grb_mvt_significance(
             cores,
             f1,
             f2,
-            path=output_dir
+            path=output_dir,
+            all_fig=all_fig,
         )
     
     except Exception as e:
@@ -225,7 +227,7 @@ def grb_mvt_significance(
 def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
                     bw,time_edges,   counts, back_counts, output_path,
                     output_file_path, start_padding, end_padding, N,
-                    cores,f1, f2, en, threshold=3.0, all_delta=False):
+                    cores,f1, f2, en, threshold=3.0, all_delta=False, all_fig=False):
     
 
     cache = {}
@@ -236,7 +238,7 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
         for delta in valid_deltas:
             significance, mvt, mvt_error, tr = grb_mvt_significance(
                 delta, trigger_number, T0, T90, bw,tt1, time_edges, counts, back_counts, output_path, output_file_path, 
-                start_padding, end_padding, N, cores, f1, f2, en,
+                start_padding, end_padding, N, cores, f1, f2, en, all_fig=all_fig
                 
             )
             results.append({
@@ -253,7 +255,7 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
     print(f'Running MVT for Upper limit delta = {upper_limit_delta}')
     significance, mvt, mvt_error, tr = grb_mvt_significance(
                 upper_limit_delta, trigger_number, T0, T90, bw,tt1, time_edges, counts, back_counts, output_path, output_file_path, 
-                start_padding, end_padding, N, cores, f1, f2, en,
+                start_padding, end_padding, N, cores, f1, f2, en, all_fig=all_fig
                 
             )
     if significance <= threshold:
@@ -285,7 +287,7 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
         if delta not in cache:
             significance, mvt, mvt_error, tr = grb_mvt_significance(
                 delta, trigger_number, T0, T90, bw,tt1, time_edges, counts, back_counts, output_path, output_file_path, 
-                start_padding, end_padding, N, cores, f1, f2, en,
+                start_padding, end_padding, N, cores, f1, f2, en, all_fig=all_fig
                 
             )
             cache[delta] = (significance, mvt, mvt_error, tr)
@@ -310,7 +312,7 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
 
 def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, tt1, bw,
                      valid_deltas, start_padding, end_padding, N, cores, f1, f2, en,
-                     output_folder=None, all_delta=False, delta=None):
+                     output_folder=None, all_delta=False, all_fig = True, delta=None):
     
     time_now = datetime.now().strftime("%y_%m_%d_%H:%M:%S")
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -346,7 +348,7 @@ def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, t
     result = binary_search_mvt(
         valid_deltas, trigger_number, T0, T90, tt1, bw, time_edges, counts, back_counts,
         output_path, output_file_path, start_padding, end_padding, N, cores, f1, f2, en,
-        threshold=3.0, all_delta=all_delta
+        threshold=3.0, all_delta=all_delta, all_fig=all_fig
     )
     
     MVT_delt_plot(output_file_path, output_plot_path)

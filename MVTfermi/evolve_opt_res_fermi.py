@@ -10,8 +10,9 @@ import matplotlib.pyplot as plt
 
 import numpy as np 
 import matplotlib as mpl
+from datetime import datetime
 
-from find_opt_res_fermi import find_optimum_resolution_diff, convert_res_coarse, ExponentialFloat
+from .find_opt_res_fermi import find_optimum_resolution_diff, convert_res_coarse, ExponentialFloat
 #from multiprocessing import Pool, cpu_count
 #from concurrent.futures import ProcessPoolExecutor, as_completed
 import concurrent.futures
@@ -20,7 +21,6 @@ import PyPDF2
 from numpy import polyfit
 from scipy.optimize import curve_fit
 
-from BAduty.Notebook.NB_lib_notebook import *
 import matplotlib.cm as cm
 import matplotlib.colors as colors
 
