@@ -48,5 +48,5 @@ dependencies = [
 MVTfermi = "MVTfermi.mvt_parallel_fermi:main"
 
 [project.urls]
-Homepage = "https://your_project_homepage_or_repo_link"
-# Issues = "https://your_project_issues_link"
+Homepage = "https://github.com/sumanbala2210-USRA/mvt_fermi"
+
