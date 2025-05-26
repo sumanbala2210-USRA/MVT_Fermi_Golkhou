@@ -176,20 +176,6 @@ This command will:
 * Save plots and CSV results in the specified output folder
 ---
 
-## `.npz` Light Curve Data
-
-The `trigger_process()` function generates and saves GRB light curve data as a compressed `.npz` file. This file contains three NumPy arrays used for Minimum Variability Timescale (MVT) analysis:
-
-| Key                     | Shape                | Description                                                                 |
-|------------------------|----------------------|-----------------------------------------------------------------------------|
-| `full_grb_time_lo_edge`| *(N,)*               | Lower edges of time bins during the GRB.                                   |
-| `full_grb_counts`      | *(N,)*               | Observed photon counts in each time bin (signal + background).             |
-| `full_back_counts`     | *(N,)*               | Estimated background counts in each time bin (from polynomial fit).        |
-
-- **N** is the number of bins between `tt1` and `tend`, determined using the bin width (`bw`).
-- The output is saved at the specified path (`file_write`) inside `trigger_directory` as a compressed `.npz` file.
-- This file is used as input by tools like `MVTgeneral` for efficient re-analysis without reprocessing the raw TTE files.
-
 
 ### 2. Python or Jupyter usage: `mvtfermi()` `mvtgeneral()`
 
@@ -243,6 +229,18 @@ mvtgeneral(time_edges=my_edges, counts=my_counts, back_counts=my_background, del
 ```
 
 This allows you to skip config/data file loading and analyze your own in-memory data.
+
+### `.npz` Light Curve Data
+
+This file contains three NumPy arrays used for Minimum Variability Timescale (MVT) analysis:
+
+| Key                     | Shape                | Description                                                                 |
+|------------------------|----------------------|-----------------------------------------------------------------------------|
+| `full_grb_time_lo_edge`| *(N,)*               | Lower edges of time bins during the GRB.                                   |
+| `full_grb_counts`      | *(N,)*               | Observed photon counts in each time bin (signal + background).             |
+| `full_back_counts`     | *(N,)*               | Estimated background counts in each time bin (from polynomial fit).        |
+
+- **N** is the number of bins between `tt1` and `tend`, determined using the bin width (`bw`).
 
 ---
 
