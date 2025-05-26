@@ -125,7 +125,7 @@ all_fig: True                     # If True, generates detailed diagnostic d for
 
 
 
-### Place this `config_MVT.yaml` (`config_MVT_general.yaml` ) file in the directory from where you will run the `MVTfermi` (or `MVTgeneral`) script or `mvtfermi` (`mvtgeneral()`) function . Update paths to reflect your local setup.
+#### Place this `config_MVT.yaml` (`config_MVT_general.yaml` ) file in the directory from where you will run the `MVTfermi` (or `MVTgeneral`) script or `mvtfermi` (`mvtgeneral()`) function . Update paths to reflect your local setup.
 
 
 
