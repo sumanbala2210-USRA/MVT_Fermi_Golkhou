@@ -2,33 +2,35 @@ import os
 import sys
 import yaml
 
-
-from gdt.missions.fermi.gbm.finders import TriggerFtp
-
-from gdt.missions.fermi.time import *
-from gdt.core.phaii import Phaii
 from datetime import datetime
 import numpy as np 
-import csv
-import pandas as pd
 #from find_opt_res_pap import find_optimum_resolution_diff, convert_res_coarse
 from .mvt_analysis import run_mvt_analysis
 from .evolve_opt_res_fermi import compute_grb_time_bounds
 from .trigger_process import trigger_process
 
-#from multiprocessing import Pool, cpu_count
-#from concurrent.futures import ProcessPoolExecutor, as_completed
+import argparse
 
+#from your_module import compute_grb_time_bounds, trigger_process, run_mvt_analysis  # adjust imports accordingly
 
-import csv
-import os
+def mvtfermi(delta=None):
+    # Allow CLI delta input if not passed as an argument
+    all_delta = False
+    if delta is None and len(sys.argv) > 1:
+        parser = argparse.ArgumentParser(description="Run Fermi GRB MVT analysis.")
+        parser.add_argument("--delta", type=str, help="Delta value (e.g., 0.5 or 'all')")
+        args, _ = parser.parse_known_args()
+        delta = args.delta
 
-import os
-import csv
+    if isinstance(delta, str) and delta.lower() == "all":
+        delta = None
+        all_delta = True
+    elif isinstance(delta, str):
+        try:
+            delta = float(delta)
+        except ValueError:
+            raise ValueError(f"Invalid delta value: {delta}. Must be float or 'all'.")
 
-
-def mvtfermi():
-    flag_data_read = True
     trigger_config_file = 'config_MVT.yaml'
     with open(trigger_config_file, 'r') as f:
         config_trigger = yaml.safe_load(f)
@@ -48,26 +50,22 @@ def mvtfermi():
     cores = config_trigger['cores']
     data_path = config_trigger['data_path']
     output_path = config_trigger['output_path']
-    all_delta = config_trigger['all_delta']
-
-    dets = config_trigger['det_list']
-    T90 = 4  # or config_trigger['T90']
+    all_delta = all_delta or config_trigger['all_delta']
+    T90 = 4  # or config_trigger.get('T90', 4)
     bkgd_range = config_trigger['background_intervals']
-    nai_dets = [d for d in dets if d.startswith('n')]
-    config_file = config_trigger['data_path']
+    nai_dets = [d for d in config_trigger['det_list'] if d.startswith('n')]
     en = f'{en_lo}to{en_hi}keV'
-
 
     temp_trigger_directory = "bn" + trigger_number
     trigger_directory = os.path.join(data_path, temp_trigger_directory)
 
     t_del = 0.064 if T90 <= 4.0 else 1.024
 
+    # Build delta list
     delta_list = np.concatenate((
         np.arange(0.1, 1.0, 0.1),
         np.arange(1.0, 5.0, 1.0)
     ))
-
     T90_rounded = round(T90, 2)
     if np.max(delta_list) > T90_rounded and T90_rounded not in delta_list:
         delta_list = np.append(delta_list, T90_rounded)
@@ -80,17 +78,14 @@ def mvtfermi():
     tt1, t0, tend = compute_grb_time_bounds(T0, T90, max(delta_list), start_padding, end_padding, end_t90=2.0)
 
     file_write = f"all_arrays_{trigger_number}_bw_{str(bw)}_delt_{delt}.npz"
-    print(f'File Name = {file_write}\n')
     file_write_path = os.path.join(trigger_directory, file_write)
 
-    if flag_data_read and os.path.exists(file_write_path):
+    if os.path.exists(file_write_path):
         print(f"Reading data from {file_write}")
         data = np.load(file_write_path)
         time_edges = data["full_grb_time_lo_edge"]
         counts = data["full_grb_counts"]
         back_counts = data["full_back_counts"]
-        #print('time_edges min = ', time_edges.min())
-        #print('time_edges max = ', time_edges.max())
     else:
         time_edges, counts, back_counts = trigger_process(
             file_write,
@@ -126,8 +121,8 @@ def mvtfermi():
         en,
         output_folder=output_path,
         all_delta=all_delta,
+        delta=delta,
     )
-
 
 if __name__ == '__main__':
     mvtfermi()

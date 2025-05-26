@@ -113,7 +113,7 @@ Both methods share the same logic and support the same options (including option
 
 ---
 
-### 1. Terminal usage: `MVTfermi`
+### 1. Terminal usage: `MVTfermi` and `MVTgeneral`
 
 ```bash
 MVTfermi
@@ -133,9 +133,44 @@ This command will:
 * Run the full MVT analysis
 * Save plots and CSV results in the specified output folder
 
+
+```bash
+MVTgeneral                 # Runs with config_MVT_general.yaml, requires .npz data
+MVTgeneral --delta 0.5
+MVTgeneral --delta all
+```
+
+This command will:
+
+* Read `config_MVT.yaml`
+* Read cached `.npz` data (REQUIRED!!)
+* Run the full MVT analysis
+* Save plots and CSV results in the specified output folder
 ---
 
-### 2. Python or Jupyter usage: `mvtgeneral()`
+### 2. Python or Jupyter usage: `mvtfermi()` `mvtgeneral()`
+
+
+Import and run `mvtfermi()` directly:
+
+```python
+from MVTfermi.mvt_parallel_fermi import mvtfermi
+```
+
+You can call it in two ways:
+
+#### a. Auto-read config and data
+
+```python
+mvtfermi()
+mvtfermi(delta="all")      # Scan all delta values (from valid_deltas list)
+mvtfermi(delta=0.5)        # Run with fixed delta=0.5
+```
+
+* Load settings from `config_MVT.yaml`
+* Load `.npz`-cached arrays if available
+* Run the analysis using provided or default `delta`
+
 
 Import and run `mvtgeneral()` directly:
 
@@ -168,12 +203,18 @@ This allows you to skip config/data file loading and analyze your own in-memory 
 
 ---
 
-### Summary of Interfaces
+# MVTfermi & MVTgeneral — CLI and Python Usage Overview
 
-| Method         | Context        | Accepts CLI `--delta`  | Accepts data arrays | Reads config\_MVT.yaml | Use Case                |
-| -------------- | -------------- | ---------------------- | ------------------- | ---------------------- | ----------------------- |
-| `MVTfermi`     | Terminal       | ✅ Yes                  | ❌ No                | ✅ Yes                  | Terminal-based analysis |
-| `mvtgeneral()` | Jupyter/Python | ✅ Yes (via `sys.argv`) | ✅ Yes               | ✅ Yes                  | Scripting, custom data  |
+| Tool / Interface | Type         | Config File Used           | Accepts delta? | Accepts arrays? | .npz data usage           | Description                         |
+|------------------|--------------|---------------------------|----------------|-----------------|---------------------------|-----------------------------------|
+| `MVTfermi`       | CLI command  | `config_MVT.yaml`         | Yes (`--delta`)| No              | Optional, cached if exists | Terminal tool for standard MVT analysis |
+| `MVTgeneral`     | CLI command  | `config_MVT_general.yaml` | Yes (`--delta`)| No              | Requires .npz data file    | Terminal tool requiring `.npz` light curve data |
+| `mvtfermi()`     | Python func  | `config_MVT.yaml`         | Yes (`delta=`) | Optional        | Optional `.npz` or arrays  | Python API, can auto-read config or use arrays |
+| `mvtgeneral()`   | Python func  | `config_MVT.yaml`         | Yes (`delta=`) | Optional        | Optional `.npz` or arrays  | Python API, flexible data input   |
+
+---
+
+
 
 ## Dependencies
 

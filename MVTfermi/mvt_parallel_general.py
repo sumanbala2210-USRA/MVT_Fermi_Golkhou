@@ -104,12 +104,11 @@ import sys
 import numpy as np
 import yaml
 
-from MVTfermi.mvt_parallel_analysis import run_mvt_analysis
-from MVTfermi.time_windowing import compute_grb_time_bounds
 
 
 def mvtgeneral(time_edges=None, counts=None, back_counts=None, delta=None):
     # Allow --delta from CLI if not passed directly
+    all_delta = False
     if delta is None and len(sys.argv) > 1:
         import argparse
         parser = argparse.ArgumentParser(description="Run GRB MVT analysis.")
@@ -119,6 +118,7 @@ def mvtgeneral(time_edges=None, counts=None, back_counts=None, delta=None):
 
     if isinstance(delta, str) and delta.lower() == "all":
         delta = None
+        all_delta = True
     elif isinstance(delta, str):
         try:
             delta = float(delta)

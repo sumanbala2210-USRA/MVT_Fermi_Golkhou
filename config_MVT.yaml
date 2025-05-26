@@ -16,5 +16,5 @@ f1: 5                             # Factor for lower bound of fitting range (f1 
 f2: 3                             # Factor for upper bound of fitting range (f2 * MVT_moving_avg_min)
 en_lo: 10                         # Lower energy bound (keV) for data selection
 en_hi: 1000                       # Upper energy bound (keV) for data selection
-all_delta: False                  # If True, runs for all valid_deltas; otherwise, uses specific delt or binary search logic (as per main script's logic)
+#all_delta: False                  # If True, runs for all valid_deltas; otherwise, uses specific delt or binary search logic (as per main script's logic)
 all_fig: True                     # If True, generates detailed diagnostic d for each iteration (controlled by MVTAnalyzer)
