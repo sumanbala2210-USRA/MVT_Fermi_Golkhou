@@ -104,26 +104,76 @@ Place this `config_MVT.yaml` file in the directory from where you will run the `
 
 ## Usage
 
-The package provides a command-line script `MVTfermi` (defined in `pyproject.toml` under `[project.scripts]`).
+The **MVTfermi** package provides two equivalent ways to run the analysis:
 
-### Command-line usage
+1. **Terminal-based interface:** using the `MVTfermi` command-line script
+2. **Python/Jupyter interface:** using the `mvtgeneral()` function
 
-1. Prepare your `config_MVT.yaml` file with the desired parameters and correct paths.
-2. Ensure this file is in your current working directory when you run the command.
-3. Run the analysis:
+Both methods share the same logic and support the same options (including optional `delta`).
+
+---
+
+### 1. Terminal usage: `MVTfermi`
 
 ```bash
 MVTfermi
 ```
 
-The script will:
+Optionally, specify a delta value:
+
+```bash
+MVTfermi --delta 0.5     # run with delta=0.5
+MVTfermi --delta all     # scan all valid delta values
+```
+
+This command will:
 
 * Read `config_MVT.yaml`
-* Process the specified GRB data (downloading/caching it via GDT if needed)
-* Perform MVT analysis
-* Save outputs to the `output_path` specified in the config
+* Optionally read cached `.npz` data if it exists
+* Run the full MVT analysis
+* Save plots and CSV results in the specified output folder
 
-> **Important:** Ensure `data_path` and `output_path` in `config_MVT.yaml` point to valid local directories.
+---
+
+### 2. Python or Jupyter usage: `mvtgeneral()`
+
+Import and run `mvtgeneral()` directly:
+
+```python
+from MVTfermi.mvt_parallel_general import mvtgeneral
+```
+
+You can call it in two ways:
+
+#### a. Auto-read config and data
+
+```python
+mvtgeneral(delta="all")      # Scan all delta values (from valid_deltas list)
+mvtgeneral(delta=0.5)        # Run with fixed delta=0.5
+```
+
+If no arrays are passed, it will:
+
+* Load settings from `config_MVT.yaml`
+* Load `.npz`-cached arrays if available
+* Run the analysis using provided or default `delta`
+
+#### b. Custom light curve arrays
+
+```python
+mvtgeneral(time_edges=my_edges, counts=my_counts, back_counts=my_background, delta=0.25)
+```
+
+This allows you to skip config/data file loading and analyze your own in-memory data.
+
+---
+
+### Summary of Interfaces
+
+| Method         | Context        | Accepts CLI `--delta`  | Accepts data arrays | Reads config\_MVT.yaml | Use Case                |
+| -------------- | -------------- | ---------------------- | ------------------- | ---------------------- | ----------------------- |
+| `MVTfermi`     | Terminal       | ✅ Yes                  | ❌ No                | ✅ Yes                  | Terminal-based analysis |
+| `mvtgeneral()` | Jupyter/Python | ✅ Yes (via `sys.argv`) | ✅ Yes               | ✅ Yes                  | Scripting, custom data  |
 
 ## Dependencies
 
@@ -139,8 +189,8 @@ Key dependencies are managed via `pyproject.toml`:
 * `termcolor`
 * `sigfig`
 * `requests`
-* `PyYAML` (for config file reading)
-* `jupyter` & `notebook` (for development and testing)
+* `PyYAML`
+* `jupyter` & `notebook`
 
 See `pyproject.toml` for the complete, version-controlled list.
 
