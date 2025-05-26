@@ -205,12 +205,13 @@ This allows you to skip config/data file loading and analyze your own in-memory 
 
 # MVTfermi & MVTgeneral — CLI and Python Usage Overview
 
-| Tool / Interface [`Yaml` used]         | Type         | Accepts delta?         | Accepts arrays?              | .npz data usage           | Description       |
-|---------------------------------------|--------------|----------------------------------|-----------------------|---------------------------|------------------|
-| `MVTfermi` [`config_MVT`]              | Terminal     | ✅ Yes (`--delta`)      | ❌ No                  | Optional, cached if exists | Terminal tool for standard MVT analysis |
-| `MVTgeneral` [`config_MVT_general`]    | Terminal     | ✅ Yes (`--delta`)      | ❌ No                  | ⚠️ Requires .npz data file  | Terminal tool requiring `.npz` light curve data |
-| `mvtfermi()` [`config_MVT`]             | Python func  | ✅ Yes (`delta=`)       | ❌ No                  | Optional `.npz` or arrays  | Python API, can auto-read config    |
-| `mvtgeneral()` [`config_MVT_general`]   | Python func  | ✅ Yes (`delta=`)       | ⚠️ Must if no `.npz`     | ⚠️ Must if no array given   | Python API, flexible data input     |
+| Tool / Interface [`Yaml` used]         | Type         | Accepts delta input?        | Accepts arrays?        | .npz data usage           | Description                          |
+|---------------------------------------|--------------|----------------------------|-----------------------|---------------------------|------------------------------------|
+| `MVTfermi` [`config_MVT`]              | Terminal     | ✅ Yes (`--delta`)           | ❌ No                  | Optional, cached if exists | Terminal tool for standard MVT analysis |
+| `MVTgeneral` [`config_MVT_general`]    | Terminal     | ✅ Yes (`--delta`)           | ❌ No                  | ⚠️ Requires .npz data file  | Terminal tool requiring `.npz` light curve data |
+| `mvtfermi()` [`config_MVT`]             | Python func  | ✅ Yes (`delta=`)            | ❌ No                  | Optional `.npz` or arrays  | Python API, can auto-read config    |
+| `mvtgeneral()` [`config_MVT_general`]   | Python func  | ✅ Yes (`delta=`)            | ⚠️ Must if no `.npz`     | ⚠️ Must if no array given   | Python API, flexible data input     |
+
 
 
 
