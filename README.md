@@ -205,12 +205,12 @@ This allows you to skip config/data file loading and analyze your own in-memory 
 
 # MVTfermi & MVTgeneral — CLI and Python Usage Overview
 
-| Tool / Interface [`Yaml` used]         | Type         | Accepts delta input?        | Accepts arrays?        | .npz data usage           | Description                          |
-|---------------------------------------|--------------|----------------------------|-----------------------|---------------------------|------------------------------------|
-| `MVTfermi` [`config_MVT`]              | Terminal     | ✅ Yes (`--delta`)           | ❌ No                  | Optional, cached if exists | Terminal tool for standard MVT analysis |
-| `MVTgeneral` [`config_MVT_general`]    | Terminal     | ✅ Yes (`--delta`)           | ❌ No                  | ⚠️ Requires .npz data file  | Terminal tool requiring `.npz` light curve data |
-| `mvtfermi()` [`config_MVT`]             | Python func  | ✅ Yes (`delta=`)            | ❌ No                  | Optional `.npz` or arrays  | Python API, can auto-read config    |
-| `mvtgeneral()` [`config_MVT_general`]   | Python func  | ✅ Yes (`delta=`)            | ⚠️ Must if no `.npz`     | ⚠️ Must if no array given   | Python API, flexible data input     |
+| Tool / Interface [`Yaml` used]         | Type         | Accepts delta input?               | Accepts arrays?               | .npz data usage              | Description                                |
+|----------------------------------------|--------------|------------------------------------|-------------------------------|------------------------------|--------------------------------------------|
+| `MVTfermi` [`config_MVT`]              | Terminal     | ✅ Yes  <br><small>`--delta`</small>     | ❌ No                         | Optional, cached if exists   | Terminal tool for standard MVT analysis     |
+| `MVTgeneral` [`config_MVT_general`]    | Terminal     | ✅ Yes  <br><small>`--delta`</small>     | ❌ No                         | ⚠️ Requires .npz data file    | Terminal tool requiring `.npz` light curve data |
+| `mvtfermi()` [`config_MVT`]            | Python func  | ✅ Yes  <br><small>`delta=`</small>      | ❌ No                         | Optional `.npz` or arrays    | Python API, can auto-read config            |
+| `mvtgeneral()` [`config_MVT_general`]  | Python func  | ✅ Yes  <br><small>`delta=`</small>      | ⚠️ Must if no `.npz`           | ⚠️ Must if no array given     | Python API, flexible data input             |
 
 
 <table>
@@ -218,17 +218,17 @@ This allows you to skip config/data file loading and analyze your own in-memory 
     <tr>
       <th style="min-width: 180px;">Tool / Interface <br><code>[Yaml used]</code></th>
       <th style="min-width: 120px;">Type</th>
-      <th style="min-width: 360px;">Accepts delta input?</th>
+      <th style="min-width: 260px;">Accepts delta input?</th>
       <th style="min-width: 180px;">Accepts arrays?</th>
-      <th style="min-width: 130px;">.npz data usage</th>
-      <th style="min-width: 130px;">Description</th>
+      <th style="min-width: 180px;">.npz data usage</th>
+      <th style="min-width: 180px;">Description</th>
     </tr>
   </thead>
   <tbody>
     <tr>
       <td><code>MVTfermi</code><br><small>[config_MVT]</small></td>
       <td>Terminal</td>
-      <td>✅ Yes (<code>--delta</code>)</td>
+      <td>✅ Yes<br><small><code>--delta</code></small></td>
       <td>❌ No</td>
       <td>Optional, cached if exists</td>
       <td>Terminal tool for standard MVT analysis</td>
@@ -236,7 +236,7 @@ This allows you to skip config/data file loading and analyze your own in-memory 
     <tr>
       <td><code>MVTgeneral</code><br><small>[config_MVT_general]</small></td>
       <td>Terminal</td>
-      <td>✅ Yes (<code>--delta</code>)</td>
+      <td>✅ Yes<br><small><code>--delta</code></small></td>
       <td>❌ No</td>
       <td><span style="background-color: #fff3cd;">⚠️ Requires .npz data file</span></td>
       <td>Terminal tool requiring <code>.npz</code> light curve data</td>
@@ -244,7 +244,7 @@ This allows you to skip config/data file loading and analyze your own in-memory 
     <tr>
       <td><code>mvtfermi()</code><br><small>[config_MVT]</small></td>
       <td>Python function</td>
-      <td>✅ Yes (<code>delta=</code>)</td>
+      <td>✅ Yes<br><small><code>delta=</code></small></td>
       <td>❌ No</td>
       <td>Optional <code>.npz</code> or arrays</td>
       <td>Python API, can auto-read config</td>
@@ -252,7 +252,7 @@ This allows you to skip config/data file loading and analyze your own in-memory 
     <tr>
       <td><code>mvtgeneral()</code><br><small>[config_MVT_general]</small></td>
       <td>Python function</td>
-      <td>✅ Yes (<code>delta=</code>)</td>
+      <td>✅ Yes<br><small><code>delta=</code></small></td>
       <td><span style="background-color: #fff3cd;">⚠️ Must if no <code>.npz</code></span></td>
       <td><span style="background-color: #fff3cd;">⚠️ Must if no array given</span></td>
       <td>Python API, flexible data input</td>
