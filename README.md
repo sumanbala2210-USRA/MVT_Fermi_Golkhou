@@ -1,6 +1,6 @@
 # mvt\_fermi
 
-# MVTfermi: Minimum Variability Timescale Analysis for Fermi GBM Data
+# MVTfermi: Minimum Variability Timescale Analysis for Fermi GBM (or GBM like) Data
 
 **MVTfermi** is a Python package designed to calculate the Minimum Variability Timescale (MVT) for Gamma-Ray Bursts (GRBs) observed by the Fermi Gamma-ray Burst Monitor (GBM). It analyzes time-binned light curve data to identify the shortest statistically significant timescales on which source flux changes occur, distinguishing these from Poisson noise.
 
@@ -8,10 +8,10 @@ The core methodology involves analyzing the variance of differenced count rates 
 
 ## Features
 
-* Calculates MVT from Fermi GBM light curve data.
-* Configurable analysis parameters via a YAML file (`config_MVT.yaml`).
-* Supports selection of specific detector lists.
-* Handles background estimation using user-defined intervals.
+* Calculates MVT from Fermi GBM (or GBM like) light curve data.
+* Configurable analysis parameters via a YAML file (`config_MVT.yaml` or `config_MVT_general.yaml`).
+* Supports selection of specific detector lists (for GBM only).
+* Handles background estimation using user-defined intervals (for GBM only).
 * Implements parallel processing for efficient computation.
 * Generates diagnostic plots and summary CSV files.
 * Provides options for scanning multiple \$\Delta\$ values or performing a binary search for optimal \$\Delta\$.
@@ -32,7 +32,6 @@ You can use either `venv` (standard Python) or `conda` (recommended for scientif
 ```bash
 python3 -m venv venv_mvtfermi
 source venv_mvtfermi/bin/activate  # Linux/macOS
-# venv_mvtfermi\Scripts\activate    # Windows
 ```
 
 #### Option 2: Using `conda`
@@ -46,13 +45,13 @@ conda activate mvtfermi
 
 #### For general users (standard install from local source):
 
-If you have the `mvt_fermi` package directory (containing `__init__.py` and `pyproject.toml`), navigate to the parent directory and run:
+If you have the `mvt_fermi` package directory navigate to the parent directory (outside the `mvt_fermi` directory) and run:
 
 ```bash
 pip install ./mvt_fermi/
 ```
 
-If your `pyproject.toml` is at the root of your project (e.g., next to the `mvt_fermi/` folder), just run:
+If you are inside `mvt_fermi/` folder, just run:
 
 ```bash
 pip install .
@@ -70,7 +69,8 @@ pip install -e .
 pip install MVTfermi
 ```
 
-The installation process will handle dependencies listed in `pyproject.toml`, including `astro-gdt` and `astro-gdt-fermi` from their GitHub repositories.
+The installation process will handle dependencies listed in `pyproject.toml`, including [astro-gdt (GDT-Core)](https://github.com/USRA-STI/gdt-core) and [astro-gdt-fermi (GDT-Fermi)](https://github.com/USRA-STI/gdt-fermi), which are installed directly from their GitHub repositories.
+
 
 ## Configuration
 
