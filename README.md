@@ -242,13 +242,13 @@ Here is the structure of the `.npz` file or the arrays needed to pass in **mvtge
 
 | `.npz` Key             | Own data array | Shape   | Description                                                                 |
 |------------------------|----------------|---------|-----------------------------------------------------------------------------|
-| `full_grb_time_lo_edge`| `time_edges`   | *(N,)*  | Lower edges of time bins during the GRB.                                   |
-| `full_grb_counts`      | `counts`       | *(N,)*  | Observed photon counts in each time bin (signal + background).             |
-| `full_back_counts`     | `back_counts`  | *(N,)*  | Estimated background counts in each time bin (from polynomial fit).        |
+| `full_grb_time_lo_edge`| `'time_edges'`   | *(N,)*  | Lower edges of time bins during the GRB.                                   |
+| `full_grb_counts`      | `'counts'`       | *(N,)*  | Observed photon counts in each time bin (signal + background).             |
+| `full_back_counts`     | `'back_counts'`  | *(N,)*  | Estimated background counts in each time bin (from polynomial fit).        |
 
-- The `full_grb_time_lo_edge` (or `time_edges` array) should contain data between **30s before the T0** and **T0+2×T90+20s** [i.e., T0−30s to T0+2×T90+20s].
-- The `full_grb_counts` (or `counts` array) is the GRB photon counts at `full_grb_time_lo_edge`.
-- The `full_back_counts` (or `back_counts` array) must be interpolated to the `full_grb_time_lo_edge` time grid.
+- The `full_grb_time_lo_edge` (or `'time_edges'` array) should contain data between **30s before the T0** and **T0+2×T90+20s** [i.e., T0−30s to T0+2×T90+20s].
+- The `full_grb_counts` (or `'counts'` array) is the GRB photon counts at `full_grb_time_lo_edge`.
+- The `full_back_counts` (or `'back_counts'` array) must be interpolated to the `full_grb_time_lo_edge` time grid.
 - **N** is the number of bins between **T0−30s** and **T0+2×T90+20s**, determined using the bin width (`bw`).
 ---
 
