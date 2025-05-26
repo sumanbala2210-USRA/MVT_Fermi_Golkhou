@@ -216,12 +216,12 @@ This allows you to skip config/data file loading and analyze your own in-memory 
 <table>
   <thead>
     <tr>
-      <th>Tool / Interface <br><code>[Yaml used]</code></th>
-      <th>Type</th>
-      <th style="min-width: 350px;">Accepts delta input?</th>
-      <th style="min-width: 160px;">Accepts arrays?</th>
-      <th>.npz data usage</th>
-      <th style="min-width: 140px;">Description</th>
+      <th style="min-width: 180px;">Tool / Interface <br><code>[Yaml used]</code></th>
+      <th style="min-width: 120px;">Type</th>
+      <th style="min-width: 260px;">Accepts delta input?</th>
+      <th style="min-width: 180px;">Accepts arrays?</th>
+      <th style="min-width: 180px;">.npz data usage</th>
+      <th style="min-width: 180px;">Description</th>
     </tr>
   </thead>
   <tbody>
@@ -259,6 +259,7 @@ This allows you to skip config/data file loading and analyze your own in-memory 
     </tr>
   </tbody>
 </table>
+
 
 
 
