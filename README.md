@@ -214,7 +214,7 @@ You can call it in two ways:
 #### a. Auto-read config and data
 
 ```python
-# Runs with config_MVT.yaml
+# Runs with config_MVT.yaml, ⚠️ requires .npz data in given stracture
 mvtgeneral(delta="all")      # Scan all delta values (from valid_deltas list)
 mvtgeneral(delta=0.5)        # Run with fixed delta=0.5
 ```
@@ -222,31 +222,34 @@ mvtgeneral(delta=0.5)        # Run with fixed delta=0.5
 If no arrays are passed, it will:
 
 * Load settings from `config_MVT_general.yaml`
-* ⚠️ Load `.npz`-cached ⚠️
+* ⚠️ Load `.npz` file ⚠️
 * Run the analysis using provided or default `delta`
 
 #### b. Custom light curve arrays
 
 ```python
+# Runs with config_MVT.yaml, does not need .npz data ✅
 mvtgeneral(time_edges=my_edges, counts=my_counts, back_counts=my_background, delta=0.25)
 ```
 
-This allows you to skip `.npz` file loading and analyze your own in-memory data.
+This allows you to skip `.npz` file loading and analyze your own in-memory data. But the data should have the following structure:
 
-### ⚠️ `.npz` Light Curve Data ⚠️
+### ⚠️ `.npz` or Light Curve Data format ⚠️
 
-This file contains three NumPy arrays used for Minimum Variability Timescale (MVT) analysis:
+This `.npz` contains three NumPy arrays used for Minimum Variability Timescale (MVT) analysis.
 
-| Key                     | Shape                | Description                                                                 |
-|------------------------|----------------------|-----------------------------------------------------------------------------|
-| `full_grb_time_lo_edge`| *(N,)*               | Lower edges of time bins during the GRB.                                   |
-| `full_grb_counts`      | *(N,)*               | Observed photon counts in each time bin (signal + background).             |
-| `full_back_counts`     | *(N,)*               | Estimated background counts in each time bin (from polynomial fit).        |
+Here is the structure of the `.npz` file or the arrays needed to pass in **mvtgeneral(time_edges=my_edges, counts=my_counts, back_counts=my_background, delta=0.25)**:
 
-- The `full_grb_time_lo_edge` should contain data between **30s before the T0** and  **T0+2xT90+20s** [i.e, T0-30s, T0+2xT90+20s]
-- The `full_back_counts` must be interpolated to the `full_grb_time_lo_edge`. 
-- **N** is the number of bins between **30s before the T0** and  **T0+2xT90+20s** [T0-30s, T0+2xT90+20s] data, determined using the bin width (`bw`).
+| `.npz` Key             | Own data array | Shape   | Description                                                                 |
+|------------------------|----------------|---------|-----------------------------------------------------------------------------|
+| `full_grb_time_lo_edge`| `time_edges`   | *(N,)*  | Lower edges of time bins during the GRB.                                   |
+| `full_grb_counts`      | `counts`       | *(N,)*  | Observed photon counts in each time bin (signal + background).             |
+| `full_back_counts`     | `back_counts`  | *(N,)*  | Estimated background counts in each time bin (from polynomial fit).        |
 
+- The `full_grb_time_lo_edge` (or `time_edges` array) should contain data between **30s before the T0** and **T0+2×T90+20s** [i.e., T0−30s to T0+2×T90+20s].
+- The `full_grb_counts` (or `counts` array) is the GRB photon counts at `full_grb_time_lo_edge`.
+- The `full_back_counts` (or `back_counts` array) must be interpolated to the `full_grb_time_lo_edge` time grid.
+- **N** is the number of bins between **T0−30s** and **T0+2×T90+20s**, determined using the bin width (`bw`).
 ---
 
 # MVTfermi & MVTgeneral — CLI and Python Usage Overview
