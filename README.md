@@ -74,7 +74,7 @@ The installation process will handle dependencies listed in `pyproject.toml`, in
 
 ## Configuration
 
-The MVT analysis is primarily controlled by a YAML configuration file, typically named `config_MVT.yaml`. An example structure is:
+The MVT analysis is primarily controlled by a YAML configuration file, named `config_MVT.yaml` (or `config_MVT.yaml`). An example structure is:
 
 ### config_MVT.yaml
 ```yaml
@@ -131,10 +131,10 @@ all_fig: True                     # If True, generates detailed diagnostic d for
 
 ## Usage
 
-The **MVTfermi** package provides two equivalent ways to run the analysis:
+The **MVTfermi** & **MVTgeneral** package provides two equivalent ways to run the analysis:
 
-1. **Terminal-based interface:** using the `MVTfermi` command-line script
-2. **Python/Jupyter interface:** using the `mvtgeneral()` function
+1. **Terminal-based interface:** using the `MVTfermi` or `MVTgeneral command-line script
+2. **Python/Jupyter interface:** using the `mvtgeneral()` or `mvtgeneral` function
 
 Both methods share the same logic and support the same options (including optional `delta`).
 
@@ -143,7 +143,7 @@ Both methods share the same logic and support the same options (including option
 ### 1. Terminal usage: `MVTfermi` and `MVTgeneral`
 
 ```bash
-MVTfermi
+MVTfermi                # run binary search method to find optimal delta and MVT
 ```
 
 Optionally, specify a delta value:
@@ -156,13 +156,14 @@ MVTfermi --delta all     # scan all valid delta values
 This command will:
 
 * Read `config_MVT.yaml`
-* Optionally read cached `.npz` data if it exists
+* Optionally read cached `.npz` data if it exists inside the trigger directory
 * Run the full MVT analysis
 * Save plots and CSV results in the specified output folder
 
 
 ```bash
-MVTgeneral                 # Runs with config_MVT_general.yaml, requires .npz data
+⚠️ # Runs with config_MVT_general.yaml, requires .npz data in given stracture
+MVTgeneral                 
 MVTgeneral --delta 0.5
 MVTgeneral --delta all
 ```
