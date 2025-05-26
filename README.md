@@ -218,10 +218,10 @@ This allows you to skip config/data file loading and analyze your own in-memory 
     <tr>
       <th>Tool / Interface <br><code>[Yaml used]</code></th>
       <th>Type</th>
-      <th style="min-width: 250px;">Accepts delta input?</th>
+      <th style="min-width: 350px;">Accepts delta input?</th>
       <th style="min-width: 160px;">Accepts arrays?</th>
       <th>.npz data usage</th>
-      <th style="min-width: 160px;">Description</th>
+      <th style="min-width: 140px;">Description</th>
     </tr>
   </thead>
   <tbody>
