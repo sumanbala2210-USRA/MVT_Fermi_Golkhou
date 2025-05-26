@@ -143,6 +143,7 @@ Both methods share the same logic and support the same options (including option
 ### 1. Terminal usage: `MVTfermi` and `MVTgeneral`
 
 ```bash
+# Runs with config_MVT.yaml
 MVTfermi                # run binary search method to find optimal delta and MVT
 ```
 
@@ -162,22 +163,22 @@ This command will:
 
 
 ```bash
-⚠️ # Runs with config_MVT_general.yaml, requires .npz data in given stracture
-MVTgeneral                 
+# Runs with config_MVT_general.yaml, ⚠️ requires .npz data in given stracture
+MVTgeneral              # run binary search method to find optimal delta and MVT                 
 MVTgeneral --delta 0.5
 MVTgeneral --delta all
 ```
 
 This command will:
 
-* Read `config_MVT.yaml`
-* Read cached `.npz` data (REQUIRED!!)
+* Read `config_MVT_general.yaml`
+* ⚠️ Read cached `.npz` data (REQUIRED!!) ⚠️
 * Run the full MVT analysis
 * Save plots and CSV results in the specified output folder
 ---
 
 
-### 2. Python or Jupyter usage: `mvtfermi()` `mvtgeneral()`
+### 2. Python or Jupyter usage: `mvtfermi()` & `mvtgeneral()`
 
 
 Import and run `mvtfermi()` directly:
@@ -191,6 +192,7 @@ You can call it in two ways:
 #### a. Auto-read config and data
 
 ```python
+# Runs with config_MVT.yaml
 mvtfermi()
 mvtfermi(delta="all")      # Scan all delta values (from valid_deltas list)
 mvtfermi(delta=0.5)        # Run with fixed delta=0.5
@@ -212,14 +214,15 @@ You can call it in two ways:
 #### a. Auto-read config and data
 
 ```python
+# Runs with config_MVT.yaml
 mvtgeneral(delta="all")      # Scan all delta values (from valid_deltas list)
 mvtgeneral(delta=0.5)        # Run with fixed delta=0.5
 ```
 
 If no arrays are passed, it will:
 
-* Load settings from `config_MVT.yaml`
-* Load `.npz`-cached arrays if available
+* Load settings from `config_MVT_general.yaml`
+* ⚠️ Load `.npz`-cached ⚠️
 * Run the analysis using provided or default `delta`
 
 #### b. Custom light curve arrays
@@ -228,9 +231,9 @@ If no arrays are passed, it will:
 mvtgeneral(time_edges=my_edges, counts=my_counts, back_counts=my_background, delta=0.25)
 ```
 
-This allows you to skip config/data file loading and analyze your own in-memory data.
+This allows you to skip `.npz` file loading and analyze your own in-memory data.
 
-### `.npz` Light Curve Data
+### ⚠️ `.npz` Light Curve Data ⚠️
 
 This file contains three NumPy arrays used for Minimum Variability Timescale (MVT) analysis:
 
@@ -240,7 +243,9 @@ This file contains three NumPy arrays used for Minimum Variability Timescale (MV
 | `full_grb_counts`      | *(N,)*               | Observed photon counts in each time bin (signal + background).             |
 | `full_back_counts`     | *(N,)*               | Estimated background counts in each time bin (from polynomial fit).        |
 
-- **N** is the number of bins between `tt1` and `tend`, determined using the bin width (`bw`).
+- The `full_grb_time_lo_edge` should contain data between **30s before the T0** and  **T0+2xT90+20s** [i.e, T0-30s, T0+2xT90+20s]
+- The `full_back_counts` must be interpolated to the `full_grb_time_lo_edge`. 
+- **N** is the number of bins between **30s before the T0** and  **T0+2xT90+20s** [T0-30s, T0+2xT90+20s] data, determined using the bin width (`bw`).
 
 ---
 
