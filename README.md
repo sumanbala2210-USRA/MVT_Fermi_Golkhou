@@ -206,12 +206,12 @@ This allows you to skip config/data file loading and analyze your own in-memory 
 # MVTfermi & MVTgeneral — CLI and Python Usage Overview
 # MVTfermi & MVTgeneral — CLI and Python Usage Overview
 
-| Tool / Interface | Type         | Config `.yaml` File Used           | Accepts delta? | Accepts arrays? | .npz data usage           | Description                         |
+| Tool / Interface | Type         | Accepts delta? | Accepts arrays? | .npz data usage           | Description [`Yaml`]                        |
 |------------------|--------------|---------------------------|----------------|-----------------|---------------------------|-----------------------------------|
-| `MVTfermi`       | Terminal | `config_MVT`         | ✅ Yes (`--delta`)| ❌  No              | Optional, cached if exists | Terminal tool for standard MVT analysis |
-| `MVTgeneral`     | Terminal | `config_MVT_general` | ✅ Yes (`--delta`)| ❌  No              | ⚠️ Requires .npz data file    | Terminal tool requiring `.npz` light curve data |
-| `mvtfermi()`     | Python func  | `config_MVT`         |✅ Yes (`delta=`) | ❌  No       | Optional `.npz` or arrays  | Python API, can auto-read config|
-| `mvtgeneral()`   | Python func  | `config_MVT_general`         |✅ Yes (`delta=`) | ⚠️ Must if no .npz      | ⚠️ Must if no array given | Python API, flexible data input   |
+| `MVTfermi`  [`config_MVT`]      | Terminal |  ✅ Yes (`--delta`)| ❌  No              | Optional, cached if exists | Terminal tool for standard MVT analysis |
+| `MVTgeneral` [`config_MVT_general`]     | Terminal | ✅ Yes (`--delta`)| ❌  No              | ⚠️ Requires .npz data file    | Terminal tool requiring `.npz` light curve data |
+| `mvtfermi()`  [`config_MVT`]    | Python func  |✅ Yes (`delta=`) | ❌  No       | Optional `.npz` or arrays  | Python API, can auto-read config|
+| `mvtgeneral()` [`config_MVT_general`]    | Python func  | ✅ Yes (`delta=`) | ⚠️ Must if no .npz      | ⚠️ Must if no array given | Python API, flexible data input   |
 
 
 ---
