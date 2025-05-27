@@ -254,7 +254,7 @@ Here is the structure of the `.npz` file or the arrays needed to pass in **mvtge
 
 # MVTfermi & MVTgeneral — CLI and Python Usage Overview
 
-| Tool  <br><small>[`Yaml` used]</small> | Type         | Accepts delta input?               | Accepts arrays?               | .npz data usage              | Description                                |
+| Tool  <br><small>[`Yaml` to use]</small> | Type         | Accepts delta input?               | Accepts arrays?               | .npz data usage              | Description                                |
 |----------------------------------------|--------------|------------------------------------|-------------------------------|------------------------------|--------------------------------------------|
 | `MVTfermi` [`config_MVT`]              | Terminal     | ✅ Yes  <br><small>`--delta`</small>     | ❌ No                         | Optional, cached if exists   | Terminal tool for standard MVT analysis     |
 | `MVTgeneral` [`config_MVT_general`]    | Terminal     | ✅ Yes  <br><small>`--delta`</small>     | ❌ No                         | ⚠️ Requires .npz data file    | Terminal tool requiring `.npz` light curve data |
