@@ -178,8 +178,8 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
     n4_array = np.zeros(N_iter, dtype=int)
     #logger.info( f"\n Inputs:")
     #logger.info(f"tt1 = {tt1}, T0 = {T0}, T90 = {T90}, tend = {tend}, delt = {delt}, bw = {bw}, N = {N}, f1={f1}, f2={f2}")
-    print( f"\n Inputs:")
-    print(f"tt1 = {tt1}, T0 = {T0}, T90 = {T90}, tend = {tend}, delt = {delt}, bw = {ExponentialFloat(bw)}, nn = {nn}, f1={f1}, f2={f2}")
+    #print( f"\nInputs:")
+    #print(f"tt1 = {tt1}, T0 = {T0}, T90 = {T90}, tend = {tend}, delt = {delt}, bw = {ExponentialFloat(bw)}, nn = {nn}, f1={f1}, f2={f2}")
     #info_trig = f' BN: {trigger_number}, {en}, T90={T90}, bw= {bw}, delt= {delt}, T0= {T0}, ({f1}, {f2})$\sigma$'
     op_tim = np.zeros(nn, dtype=np.float64)
     err_op_tim = np.zeros(nn, dtype=np.float64)
@@ -223,27 +223,28 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
         
     log_MVT_fig = f'LOG_MVT_bn{trigger_number}_{time_now}.pdf'
     if path:
-        pdf_path = os.path.join(path, pdf_name)
+        #pdf_path = os.path.join(path, pdf_name)
         npz_path = os.path.join(path, npz_name)
         log_MVT_fig_path = os.path.join(path, log_MVT_fig)
         csv_path = os.path.join(path, csv_name)
-        narray_path = os.path.join(path, narray_name)
+        #narray_path = os.path.join(path, narray_name)
     else:
-        pdf_path = pdf_name 
+        #pdf_path = pdf_name 
         npz_path = npz_name
         log_MVT_fig_path = log_MVT_fig
         csv_path = csv_name
-        narray_path = narray_name
+        #narray_path = narray_name
 
     
     tasks = []
     
     for k in range(nn):
-        tt1 += delt
-        tt2 = tt1 + delt
+        tt1 = float(np.round(tt1 + delt, 2))
+        tt2 = np.round(tt1 + delt,2)
         if tt2 > T0 + T90 + (delt * tend) or tt2 + delt > max(lc_lo_edges):
             break
         tr[k] = tt1 
+        #print(f"Processing iteration {k+1}/{nn}: tt1 = {tt1}, tt2 = {tt2}, bw = {bw}, delt = {delt}")
 
         grb_start += add_index 
         grb_end += add_index
@@ -254,7 +255,6 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
         bkg_range = bkg_lo_edges[int(grb_start):int(bkg_end)]
         bkg_count = back_counts[int(grb_start):int(bkg_end)]
         #params = (grb_range, grb_count, bkg_range, bkg_count, tt1, tt2, bw, N, f1, f2)
-        #print(f'starting for {k
         
         '''
         if k == 0:
@@ -280,28 +280,32 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
                     bw_temp = xn[2] - xn[1]# Update bin width for next iteration
         '''
         if k ==0:
-            xn = bkg_range.copy()  # Initial bin edges
+            xn_bkg = bkg_range.copy()  # Initial bin edges
+            xn_src = grb_range.copy()
             #print('K =',0)
             for i in range(N_iter):
-                n1 = np.searchsorted(xn, tt1, side='left')
-                n2 = np.searchsorted(xn, tt2, side='right')
+                n1 = np.searchsorted(xn_src, tt1, side='left')
+                n2 = np.searchsorted(xn_src, tt2, side='right')
+                n3 = np.searchsorted(xn_bkg, tt1, side='left')
+                n4 = np.searchsorted(xn_bkg, tt2, side='right')
                 n1_array[i] = n1
                 n2_array[i] = n2
-                n3_array[i] = n1 
-                n4_array[i] = n2 
+                n3_array[i] = n3 
+                n4_array[i] = n4 
                 
                 
                 # Matching your grb slicing logic: grb = grb_range[n1:n2+1]
                 if (n2 - n1 + 1) <= 2:
                     continue  # skip this resolution level
-                xn,_ = convert_res_coarse(bkg_range, bkg_count, i + 1)
+                xn_bkg,_ = convert_res_coarse(bkg_range, bkg_count, i + 1)
+                xn_src,_ = convert_res_coarse(grb_range, grb_count, i + 1)
                 #print('n1= ',n1, 'n2= ', n2, 'xn= ', xn)
                 #print('N arrays computed @@@@@@@@@@@@@@@')
                 #np.savez(narray_path,
                 #     n1_bkg_tt1= n1_array,
                 #     n2_bkg_tt2 = n2_array)
         
-        tasks.append((trigger_number, grb_range, grb_count, bkg_range, bkg_count, tt1, tt2, bw, N, f1, f2, k, path, n1_array, n2_array, n1_array, n2_array, all_fig))
+        tasks.append((trigger_number, grb_range, grb_count, bkg_range, bkg_count, tt1, tt2, bw, N, f1, f2, k, path, n1_array, n2_array, n3_array, n4_array, all_fig))
     
     max_workers = min(cores, len(tasks))  # Use fewer workers if needed
     #print(f"len(tasks)= {len(tasks)}, nn={nn}")
@@ -514,7 +518,9 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
         combine_pdfs_path(fig_list, pdf_name,path)
     else:
         combine_pdfs(fig_list, pdf_name)
-    print(f"@@@@@@@@@@@@@@ {min_text} @@@@@@@@@@@@")
+    print(f"$$$$$$$$$$$$$$$  delata = {delt}  $$$$$$$$$$$$$$$")
+    print(min_text)
+    print(f"$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$")
     print(f" pdf saved: {pdf_name} ")
     
     plt.close()

@@ -154,7 +154,7 @@ def MVT_delt_plot(file_name, plot_name, path=None):
 
 
 def grb_mvt_significance(
-    delt,
+    delta,
     trigger_number,
     T0,
     T90,
@@ -169,9 +169,10 @@ def grb_mvt_significance(
     f1,
     f2,
     en,
-    all_fig=False
+    all_fig
 ):
-    print(f'\n\n$$$$$$$$$  Staring MVT calculation for delt = {delt} $$$$$$$$$$$$')
+    delt= round(delta, 2)
+    print(f'\n$$$$$$$$$  Starting MVT calculation for delta = {delt} $$$$$$$$$$$$')
     
     try:
         #print('full_grb_time_lo_edge', full_grb_time_lo_edge[0])
@@ -198,7 +199,7 @@ def grb_mvt_significance(
         )
     
     except Exception as e:
-        print(f"\n!!!!!!!! Error computing MVT for {trigger_number} at delt={delt} !!!!!!!!\n{e}")
+        print(f"\n!!!!!!!! Error computing MVT for {trigger_number} at delta={delt} !!!!!!!!\n{e}")
         
         # Set all values to NaN or fallback
         tr = -100
@@ -218,7 +219,7 @@ def grb_mvt_significance(
   # or float('-inf') to clearly mark a failure
         
 
-    print(f'##########  Done for delt = {delt} #########\n')
+    print(f'##########  Done for delta = {delt} #########\n')
     plt.close('all')
 
     return significance_z, min_mvt, error_mvt, tr  # This is the value used in binary search
@@ -227,7 +228,7 @@ def grb_mvt_significance(
 def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
                     bw,time_edges,   counts, back_counts, output_path,
                     output_file_path, start_padding, end_padding, N,
-                    cores,f1, f2, en, threshold=3.0, all_delta=False, all_fig=False):
+                    cores,f1, f2, en, threshold=3.0, all_delta=False, all_fig=False, limit=True):
     
 
     cache = {}
@@ -250,25 +251,26 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
             })
         return {"all_results": results}
 
+    if limit:
     # -------- Upper Limit Check --------
-    upper_limit_delta = round(min(max(valid_deltas[-1], T90), 1.0), 2) 
-    print(f'Running MVT for Upper limit delta = {upper_limit_delta}')
-    significance, mvt, mvt_error, tr = grb_mvt_significance(
-                upper_limit_delta, trigger_number, T0, T90, bw,tt1, time_edges, counts, back_counts, output_path, output_file_path, 
-                start_padding, end_padding, N, cores, f1, f2, en, all_fig=all_fig
-                
-            )
-    if significance <= threshold:
-        return {
-            "tr": tr,
-            "delta": upper_limit_delta,
-            "mvt": mvt,
-            "mvt_error": mvt_error,
-            "significance": significance,
-            "is_upper_limit": True
-        }
+        upper_limit_delta = round(min(max(valid_deltas[-1], T90), 1.0), 2) 
+        print(f'Running MVT for Upper limit delta = {upper_limit_delta}')
+        significance, mvt, mvt_error, tr = grb_mvt_significance(
+                    upper_limit_delta, trigger_number, T0, T90, bw,tt1, time_edges, counts, back_counts, output_path, output_file_path, 
+                    start_padding, end_padding, N, cores, f1, f2, en, all_fig=all_fig
+                    
+                )
+        if significance <= threshold:
+            return {
+                "tr": tr,
+                "delta": upper_limit_delta,
+                "mvt": mvt,
+                "mvt_error": mvt_error,
+                "significance": significance,
+                "is_upper_limit": True
+            }
 
-    cache[upper_limit_delta] = (significance, mvt, mvt_error, tr)
+        cache[upper_limit_delta] = (significance, mvt, mvt_error, tr)
     # -------- Binary Search Only --------
     low, high = 0, len(valid_deltas) - 1
     result = {
@@ -312,7 +314,7 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
 
 def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, tt1, bw,
                      valid_deltas, start_padding, end_padding, N, cores, f1, f2, en,
-                     output_folder=None, all_delta=False, all_fig = True, delta=None):
+                     output_folder=None, all_delta=False, all_fig = True, delta=None, limit=True):
     
     time_now = datetime.now().strftime("%y_%m_%d_%H:%M:%S")
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -329,7 +331,7 @@ def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, t
         print(f"\n@@@@@@@@@@@@@@ Running MVT analysis for specific delta = {delta:.2f}s @@@@@@@@@@@@@@@")
         significance, mvt, mvt_error, tr = grb_mvt_significance(
             delta, trigger_number, T0, T90, bw, tt1, time_edges, counts, back_counts,
-            output_path, output_file_path, start_padding, end_padding, N, cores, f1, f2, en
+            output_path, output_file_path, start_padding, end_padding, N, cores, f1, f2, en, all_fig=all_fig
         )
         val_fmt = ExponentialFloat(mvt, n=2, pow=-3)
         err_fmt = ExponentialFloat(mvt_error, n=2, pow=val_fmt.pow)
@@ -348,7 +350,7 @@ def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, t
     result = binary_search_mvt(
         valid_deltas, trigger_number, T0, T90, tt1, bw, time_edges, counts, back_counts,
         output_path, output_file_path, start_padding, end_padding, N, cores, f1, f2, en,
-        threshold=3.0, all_delta=all_delta, all_fig=all_fig
+        threshold=3.0, all_delta=all_delta, all_fig=all_fig, limit=limit
     )
     
     MVT_delt_plot(output_file_path, output_plot_path)

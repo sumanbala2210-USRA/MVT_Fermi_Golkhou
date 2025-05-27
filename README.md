@@ -222,7 +222,7 @@ mvtgeneral(delta=0.5)        # Run with fixed delta=0.5
 If no arrays are passed, it will:
 
 * Load settings from `config_MVT_general.yaml`
-* ⚠️ Load `.npz` file ⚠️
+* ⚠️ Load `.npz` file 
 * Run the analysis using provided or default `delta`
 
 #### b. Custom light curve arrays

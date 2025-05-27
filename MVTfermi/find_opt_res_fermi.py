@@ -266,7 +266,7 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
     err_fmt = ExponentialFloat(error_x, n=2, pow=val_fmt.pow)  # match exponent
 
     mvt_str = f'({val_fmt.scaled_str()} ± {err_fmt.scaled_str()})ms'#e{val_fmt.pow:+d}'
-    print(f"MVT between {tt1:.2f} to {tt2:.2f} Sec: {mvt_str}, SNR = {opt_signal:.2f}")
+    print(f"MVT {tt1:6.2f} to {tt2:6.2f} Sec: {mvt_str.ljust(20)} SNR = {opt_signal:6.2f}")
 
     if Fig:
         # --- Color palette for consistency ---

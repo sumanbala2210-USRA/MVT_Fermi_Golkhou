@@ -13,14 +13,37 @@ import argparse
 
 #from your_module import compute_grb_time_bounds, trigger_process, run_mvt_analysis  # adjust imports accordingly
 
-def mvtfermi(delta=None):
-    # Allow CLI delta input if not passed as an argument
+def str2bool(value):
+    true_set = {"y", "yes", "true", "1", "t"}
+    false_set = {"n", "no", "false", "0", "f"}
+
+    if isinstance(value, bool):
+        return value
+    if not isinstance(value, str):
+        raise ValueError(f"Invalid type for boolean value: {value}")
+
+    val = value.strip().lower()
+    if val in true_set:
+        return True
+    elif val in false_set:
+        return False
+    else:
+        raise ValueError(f"Invalid boolean string: {value}")
+
+def mvtfermi(delta=None, limit=True):
     all_delta = False
-    if delta is None and len(sys.argv) > 1:
+
+    if (delta is None or limit is None) and len(sys.argv) > 1:
         parser = argparse.ArgumentParser(description="Run Fermi GRB MVT analysis.")
         parser.add_argument("--delta", type=str, help="Delta value (e.g., 0.5 or 'all')")
+        parser.add_argument("--limit", type=str, help="Apply limit (e.g., yes, no, true, false)")
         args, _ = parser.parse_known_args()
-        delta = args.delta
+
+        if delta is None:
+            delta = args.delta
+
+        if limit is None and args.limit is not None:
+            limit = str2bool(args.limit)
 
     if isinstance(delta, str) and delta.lower() == "all":
         delta = None
@@ -30,6 +53,10 @@ def mvtfermi(delta=None):
             delta = float(delta)
         except ValueError:
             raise ValueError(f"Invalid delta value: {delta}. Must be float or 'all'.")
+
+    # Normalize limit if it's still a string
+    if isinstance(limit, str):
+        limit = str2bool(limit)
 
     trigger_config_file = 'config_MVT.yaml'
     with open(trigger_config_file, 'r') as f:
@@ -51,7 +78,7 @@ def mvtfermi(delta=None):
     data_path = config_trigger['data_path']
     output_path = config_trigger['output_path']
     all_delta = all_delta or config_trigger['all_delta']
-    T90 = 4  # or config_trigger.get('T90', 4)
+    T90 = 5  # or config_trigger.get('T90', 4)
     bkgd_range = config_trigger['background_intervals']
     nai_dets = [d for d in config_trigger['det_list'] if d.startswith('n')]
     en = f'{en_lo}to{en_hi}keV'
@@ -66,6 +93,7 @@ def mvtfermi(delta=None):
         np.arange(0.1, 1.0, 0.1),
         np.arange(1.0, 5.0, 1.0)
     ))
+    #delta_list = np.round(delta_list, 2)
     T90_rounded = round(T90, 2)
     if np.max(delta_list) > T90_rounded and T90_rounded not in delta_list:
         delta_list = np.append(delta_list, T90_rounded)
@@ -122,6 +150,7 @@ def mvtfermi(delta=None):
         output_folder=output_path,
         all_delta=all_delta,
         delta=delta,
+        limit=limit
     )
 
 if __name__ == '__main__':
