@@ -48,16 +48,13 @@ cd mvt_fermi
 pip install .
 ```
 
-Download as ZIP (No Git Required)
+#### Download as ZIP (No Git Required)
 
 You can download the source code as a .zip file from GitHub:
 
 - Visit: https://github.com/sumanbala2210-USRA/mvt_fermi
-
 - Click the green “Code” button
-
 - Select “Download ZIP”
-
 - Extract the contents
 
 ### Install the package
