@@ -172,7 +172,7 @@ def grb_mvt_significance(
     all_fig
 ):
     delt= round(delta, 2)
-    print(f'\n$$$$$$$$$  Starting MVT calculation for delta = {delt} $$$$$$$$$$$$')
+    print(f'\n$$$$$$$$$$$$$  Starting MVT calculation for delta = {delt} $$$$$$$$$$$$$')
     
     try:
         #print('full_grb_time_lo_edge', full_grb_time_lo_edge[0])

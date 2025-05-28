@@ -55,7 +55,7 @@ def mvtgeneral(time_edges=None, counts=None, back_counts=None, delta=None, limit
         if delta is None:
             delta = args.delta
 
-        if limit is None and args.limit is not None:
+        if args.limit is not None:
             limit = str2bool(args.limit)
 
     if isinstance(delta, str) and delta.lower() == "all":
