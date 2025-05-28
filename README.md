@@ -40,6 +40,25 @@ source venv_mvtfermi/bin/activate  # Linux/macOS
 conda create -n mvtfermi python=3.11
 conda activate mvtfermi
 ```
+### Download the package
+
+```bash
+git clone https://github.com/sumanbala2210-USRA/mvt_fermi.git
+cd mvt_fermi
+pip install .
+```
+
+Download as ZIP (No Git Required)
+
+You can download the source code as a .zip file from GitHub:
+
+- Visit: https://github.com/sumanbala2210-USRA/mvt_fermi
+
+- Click the green “Code” button
+
+- Select “Download ZIP”
+
+- Extract the contents
 
 ### Install the package
 
@@ -63,11 +82,6 @@ pip install .
 pip install -e .
 ```
 
-#### Once the package is available on PyPI (Future):
-
-```bash
-pip install MVTfermi
-```
 
 The installation process will handle dependencies listed in `pyproject.toml`, including [astro-gdt (GDT-Core)](https://github.com/USRA-STI/gdt-core) and [astro-gdt-fermi (GDT-Fermi)](https://github.com/USRA-STI/gdt-fermi), which are installed directly from their GitHub repositories.
 
