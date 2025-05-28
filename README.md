@@ -46,17 +46,20 @@ conda activate mvtfermi
 git clone https://github.com/sumanbala2210-USRA/mvt_fermi.git
 cd mvt_fermi
 pip install .
+pip install -e . #For developers
 ```
+
 
 #### Download as ZIP (No Git Required)
 
 You can download the source code as a .zip file from GitHub:
 
+```
 - Visit: https://github.com/sumanbala2210-USRA/mvt_fermi
 - Click the green “Code” button
 - Select “Download ZIP”
 - Extract the contents
-
+```
 ### Install the package
 
 #### For general users (standard install from local source):
