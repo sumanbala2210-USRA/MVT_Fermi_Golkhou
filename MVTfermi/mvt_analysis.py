@@ -219,7 +219,7 @@ def grb_mvt_significance(
   # or float('-inf') to clearly mark a failure
         
 
-    print(f'##########  Done for delta = {delt} #########\n')
+    print(f'####################  Done for delta = {delt} ####################\n')
     plt.close('all')
 
     return significance_z, min_mvt, error_mvt, tr  # This is the value used in binary search
@@ -253,7 +253,7 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
 
     if limit:
     # -------- Upper Limit Check --------
-        upper_limit_delta = round(min(max(valid_deltas[-1], T90), 1.0), 2) 
+        upper_limit_delta = round(min(max(valid_deltas[-1], T90), 4.0), 2) 
         print(f'Running MVT for Upper limit delta = {upper_limit_delta}')
         significance, mvt, mvt_error, tr = grb_mvt_significance(
                     upper_limit_delta, trigger_number, T0, T90, bw,tt1, time_edges, counts, back_counts, output_path, output_file_path, 
@@ -318,7 +318,7 @@ def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, t
     
     time_now = datetime.now().strftime("%y_%m_%d_%H:%M:%S")
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_dir = f'BN{trigger_number}_MVT_{time_now}'
+    output_dir = f'BN{trigger_number}_MVT'#_{time_now}'   ############## Change this to your desired output directory name
     output_path = os.path.join(output_folder or script_dir, output_dir)
     os.makedirs(output_path, exist_ok=True)
 

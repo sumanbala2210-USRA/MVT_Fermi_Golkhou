@@ -367,14 +367,8 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
         plt.savefig(fig_path,facecolor=fig.get_facecolor(), bbox_inches='tight')
         plt.close()
 
-    #np.savez(narray_path,
-    #         n1_bkg_tt1= src_start_n,
-    #         n2_bkg_tt2 = src_end_n)
-             #n1_bkg_grb_tt1 = n1_bkg_array,
-             #n3_grb_tt2 =n3_array)
-    #print(f"N values are saved!!!! in {narray_name}")
-    #print('\nopt_signal',opt_signal)
-    #logger.info(f"Optimal bin for between {tt1:.2f} to {tt2:.2f} Sec: {np.exp(x_min):.7f} ± {error_x:.8f}")
-    
-    
     return np.exp(x_min), error_x, ExponentialFloat(opt_signal), k, file_name
+    
+
+
+

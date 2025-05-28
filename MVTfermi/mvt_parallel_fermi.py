@@ -115,6 +115,7 @@ def mvtfermi(delta=None, limit=True):
         counts = data["full_grb_counts"]
         back_counts = data["full_back_counts"]
     else:
+
         time_edges, counts, back_counts = trigger_process(
             file_write,
             trigger_directory,
