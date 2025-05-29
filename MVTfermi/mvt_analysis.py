@@ -1,23 +1,19 @@
 import os
-import sys
 
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
+from matplotlib import rcParams
 
 from datetime import datetime
 import numpy as np 
 import csv
 import pandas as pd
 
-
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from matplotlib import rcParams
 from scipy.interpolate import interp1d
-#from find_opt_res_pap import find_optimum_resolution_diff, convert_res_coarse
-from .evolve_opt_res_fermi import evolve_optimum_resolution_diff
 
+from .evolve_opt_res_fermi import evolve_optimum_resolution_diff
 from .find_opt_res_fermi import ExponentialFloat
 
 

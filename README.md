@@ -44,6 +44,8 @@ conda activate mvtfermi
 
 ```bash
 git clone https://github.com/sumanbala2210-USRA/mvt_fermi.git
+or
+git clone git@github.com:sumanbala2210-USRA/mvt_fermi.git
 cd mvt_fermi
 pip install .
 pip install -e . #For developers
@@ -94,47 +96,44 @@ The MVT analysis is primarily controlled by a YAML configuration file, named `co
 ```yaml
 trigger_number: '211211549'       # GRB trigger number
 background_intervals: [[-11.67, -1.04], [57.5, 69.58]] # List of [start, end] background time intervals
-T90: 34.3046                      # T90 duration of the GRB
+T90: 34.3046                    # T90 duration of the GRB
 det_list: [n2, na]                # List of Fermi GBM detectors to use (e.g., n0-nb for NaIs, b0-b1 for BGOs)
 T0: 0                             # Trigger time T0 (seconds)
+data_path: '/path/to/your/fermi/data/' # Path where GRB data (e.g., TTE files) are located or will be downloaded/cached by GDT
+output_path: '/path/to/your/output/'   # Path to save analysis results
 en_lo: 10                         # Lower energy bound (keV) for data selection
 en_hi: 1000                       # Upper energy bound (keV) for data selection
-data_path: '/path/to/your/fermi/data/' # Path where GRB data (e.g., TTE files) are located or will be downloaded/cached by GDT
-output_path: '/path/to/your/output/'   # Path to save analysis results and plots
-
 ## Advance parameters #######
+N: 30                             # Number of Monte Carlo iterations for MVT finding
+cores: 2                          # Number of CPU cores for parallel processing
 start_padding: 5                  # Factor for extending analysis range before T0 (factor * delt)
 end_padding: 5                    # Factor for extending analysis range after T90 (factor * delt)
-cores: 2                          # Number of CPU cores for parallel processing
 bw: 0.0001                        # Base light curve bin width (seconds) for data processing
-delt: 1.0                         # MVT search window width Delta (seconds) for a specific run, or initial for scan
-N: 30                             # Number of Monte Carlo iterations for MVT finding
+delta: None                         # MVT search window width Delta (seconds) for a specific run, or initial for scan
 f1: 5                             # Factor for lower bound of fitting range (f1 * MVT_moving_avg_min)
 f2: 3                             # Factor for upper bound of fitting range (f2 * MVT_moving_avg_min)
-all_delta: False                  # If True, runs for all valid_deltas; otherwise, uses specific delt or binary search logic
-all_fig: True                     # If True, generates detailed diagnostic plots for each iteration
+all_delta: False                  # If True, runs for all valid_deltas; otherwise, uses specific delt or binary search logic (as per main script's logic)
+all_fig: False                    # If True, generates detailed diagnostic d for each iteration (controlled by MVTAnalyzer)
 ```
 
 ### config_MVT_general.yaml
 ```yaml
-trigger_number: '211211549'       # GRB trigger number
+trigger_number: '211211549'       # GRB Name
 T90: 34.3046                    # T90 duration of the GRB
 T0: 0                             # Trigger time T0 (seconds)
-start_padding: 5                  # Factor for extending analysis range before T0 (factor * delt)
-end_padding: 5                    # Factor for extending analysis range after T90 (factor * delt)
-file_path: '/path/to/your/lightcurve/data/' # Path where GRB data (e.g., TTE files) are located or will be downloaded/cached by GDT
+file_path: '/path/to/your/lightcurve/data/.npz file ' # Path where .npz file is located 
 output_path: '/path/to/your/output/'   # Path to save analysis results and d
 ## Advance parameters #######
 cores: 2                          # Number of CPU cores for parallel processing
+start_padding: 5                  # Factor for extending analysis range before T0 (factor * delt)
+end_padding: 5                    # Factor for extending analysis range after T90 (factor * delt)
 bw: 0.0001                        # Base light curve bin width (seconds) for data processing
 delt: 1.0                         # MVT search window width Delta (seconds) for a specific run, or initial for scan
 N: 30                             # Number of Monte Carlo iterations for MVT finding
 f1: 5                             # Factor for lower bound of fitting range (f1 * MVT_moving_avg_min)
 f2: 3                             # Factor for upper bound of fitting range (f2 * MVT_moving_avg_min)
-en_lo: 10                         # Lower energy bound (keV) for data selection
-en_hi: 1000                       # Upper energy bound (keV) for data selection
 #all_delta: False                  # If True, runs for all valid_deltas; otherwise, uses specific delt or binary search logic (as per main script's logic)
-all_fig: True                     # If True, generates detailed diagnostic d for each iteration (controlled by MVTAnalyzer)                # If True, generates detailed diagnostic plots for each iteration
+all_fig: False                     # If True, generates detailed diagnostic d for each iteration (controlled by MVTAnalyzer)
 ```
 
 

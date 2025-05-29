@@ -1,28 +1,18 @@
 import os
 import sys
-
-
-from scipy.interpolate import interp1d
-
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 
 import numpy as np 
-import matplotlib as mpl
 from datetime import datetime
 
 from .find_opt_res_fermi import find_optimum_resolution_diff, convert_res_coarse, ExponentialFloat
-#from multiprocessing import Pool, cpu_count
-#from concurrent.futures import ProcessPoolExecutor, as_completed
+
 import concurrent.futures
 import PyPDF2
 
-from numpy import polyfit
-from scipy.optimize import curve_fit
-
-import matplotlib.cm as cm
-import matplotlib.colors as colors
 
 
 def truncate_xn_h(xn1, h):

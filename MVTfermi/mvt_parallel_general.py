@@ -1,147 +1,121 @@
 import os
 import sys
 import yaml
-
-
-from gdt.missions.fermi.gbm.finders import TriggerFtp
-
-from gdt.missions.fermi.time import *
-from gdt.core.phaii import Phaii
-from datetime import datetime
+import argparse
 import numpy as np 
-import csv
-import pandas as pd
-#from find_opt_res_pap import find_optimum_resolution_diff, convert_res_coarse
+
 from .mvt_analysis import run_mvt_analysis
 from .evolve_opt_res_fermi import compute_grb_time_bounds
-import argparse
-
-#from multiprocessing import Pool, cpu_count
-#from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
-import csv
-import os
+from .core import (
+    str2bool,
+    parse_args_general,
+    load_and_merge_config
+)
 
-def str2bool(value):
-    true_set = {"y", "yes", "true", "1", "t"}
-    false_set = {"n", "no", "false", "0", "f"}
 
-    if isinstance(value, bool):
-        return value
-    if not isinstance(value, str):
-        raise ValueError(f"Invalid type for boolean value: {value}")
 
-    val = value.strip().lower()
-    if val in true_set:
-        return True
-    elif val in false_set:
-        return False
+def mvtgeneral(
+    delta=None, limit=None, trigger_number=None, bw=None, T0=None,
+    T90=None, start_padding=None, end_padding=None, N=None, f1=None, f2=None,
+    en_lo=None, en_hi=None, cores=None, file_path=None, output_path=None,
+    all_delta=None, time_edges=None, counts=None, back_counts=None, config=None
+):
+    func_args = {
+        "delta": delta, "limit": limit, "bw": bw, "T0": T0,
+        "T90": T90, "start_padding": start_padding, "end_padding": end_padding,
+        "N": N, "f1": f1, "f2": f2, "cores": cores, "output_path": output_path,
+        "file_path": file_path, "config": config
+    }
+    func_args = {
+                k: v for k, v in locals().items()
+                if k not in {'time_edges', 'counts', 'back_counts'}
+            }
+    default_cfg_file = "config_MVT_general.yaml"  # grabs all function args as dict
+    config = load_and_merge_config(func_args, cli_args=None, default_config_file=default_cfg_file, parse_fn=parse_args_general)
+    
+
+    # continue with specific logic for mvtfermi using merged config dict
+    # 2. Post-process delta
+
+    delta_raw = str(config.get('delta')).strip().lower() if config.get('delta') is not None else None
+
+    if delta_raw == 'all':
+        config['delta'] = None
+        config['all_delta'] = True
+    elif delta_raw in (None, 'none'):
+        config['delta'] = None
+        config['all_delta'] = False
     else:
-        raise ValueError(f"Invalid boolean string: {value}")
-
-
-
-def mvtgeneral(time_edges=None, counts=None, back_counts=None, delta=None, limit=True):
-
-    all_delta = False
-
-    if (delta is None or limit is None) and len(sys.argv) > 1:
-        parser = argparse.ArgumentParser(description="Run Fermi GRB MVT analysis.")
-        parser.add_argument("--delta", type=str, help="Delta value (e.g., 0.5 or 'all')")
-        parser.add_argument("--limit", type=str, help="Apply limit (e.g., yes, no, true, false)")
-        args, _ = parser.parse_known_args()
-
-        if delta is None:
-            delta = args.delta
-
-        if args.limit is not None:
-            limit = str2bool(args.limit)
-
-    if isinstance(delta, str) and delta.lower() == "all":
-        delta = None
-        all_delta = True
-    elif isinstance(delta, str):
         try:
-            delta = float(delta)
-        except ValueError:
-            raise ValueError(f"Invalid delta value: {delta}. Must be float or 'all'.")
+            config['delta'] = float(config['delta'])
+            config['all_delta'] = False
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid delta value: {config['delta']}")
 
-    # Normalize limit if it's still a string
-    if isinstance(limit, str):
-        limit = str2bool(limit)
+    config['all_delta'] = all_delta or config.get('all_delta', False)
+    config['limit'] = str2bool(config.get('limit', True))
 
-    # Load configuration
-    with open('config_MVT_general.yaml', 'r') as f:
-        config_trigger = yaml.safe_load(f)
+    T90 =config['T90']# config.get('T90', 4)
+    en = f"{config['en_lo']}to{config['en_hi']}keV"
 
-    trigger_number = config_trigger['trigger_number']
-    print(f"Trigger Number = {trigger_number}")
-    bw = config_trigger['bw']
-    delt = config_trigger['delt']
-    T0 = config_trigger['T0']
-    start_padding = config_trigger['start_padding']
-    end_padding = config_trigger['end_padding']
-    N = config_trigger['N']
-    f1 = config_trigger['f1']
-    f2 = config_trigger['f2']
-    en_lo = config_trigger['en_lo']
-    en_hi = config_trigger['en_hi']
-    cores = config_trigger['cores']
-    file_path = config_trigger['file_path']
-    output_path = config_trigger['output_path']
-    all_delta = config_trigger['all_delta']
-    T90 = 4  # or config_trigger['T90']
-    en = f'{en_lo}to{en_hi}keV'
-
-    t_del = 0.064 if T90 <= 4.0 else 1.024
-
-    delta_list = np.concatenate((np.arange(0.1, 1.0, 0.1), np.arange(1.0, 5.0, 1.0)))
+    delta_list = np.concatenate((
+        np.arange(0.1, 1.0, 0.1),
+        np.arange(1.0, 5.0, 1.0)
+    ))
     T90_rounded = round(T90, 2)
     if np.max(delta_list) > T90_rounded and T90_rounded not in delta_list:
         delta_list = np.append(delta_list, T90_rounded)
         delta_list = np.sort(delta_list)
-
     valid_deltas = delta_list[delta_list <= T90_rounded]
     if valid_deltas.size == 0:
         raise ValueError("No valid delta ≤ T90")
 
-    tt1, t0, tend = compute_grb_time_bounds(T0, T90, max(delta_list), start_padding, end_padding, end_t90=2.0)
+    tt1, t0, tend = compute_grb_time_bounds(
+        config['T0'], T90, max(delta_list),
+        config['start_padding'], config['end_padding'], end_t90=2.0
+    )
+    # Load data if not provided as function inputs
+    #if config['time_edges'] is None or config['counts'] is None or config['back_counts'] is None:
+    if os.path.exists(config['file_path']):
+        print(f"Reading data from {config['file_path']}")
+        data = np.load(config['file_path'])
+        time_edges = data["full_grb_time_lo_edge"]
+        counts = data["full_grb_counts"]
+        back_counts = data["full_back_counts"]
+    else:
+        raise ValueError("No input arrays provided and no .npz file found.")
 
-   
-    if time_edges is None or counts is None or back_counts is None:
-        if os.path.exists(file_path):
-            print(f"Reading data from {file_path}")
-            data = np.load(file_path)
-            time_edges = data["full_grb_time_lo_edge"]
-            counts = data["full_grb_counts"]
-            back_counts = data["full_back_counts"]
-        else:
-            raise ValueError("No input arrays provided and no .npz file found.")
+    print('\n')
+    print("Final config:".center(20,'*'))
+    for k, v in config.items():
+        print(f"{k}: {v}")
 
+    #exit()
+    # Finally run the analysis
     run_mvt_analysis(
-        trigger_number,
+        config['trigger_number'],
         time_edges,
         counts,
         back_counts,
-        T0,
+        config['T0'],
         T90,
         tt1,
-        bw,
+        config['bw'],
         valid_deltas,
-        start_padding,
-        end_padding,
-        N,
-        cores,
-        f1,
-        f2,
+        config['start_padding'],
+        config['end_padding'],
+        config['N'],
+        config['cores'],
+        config['f1'],
+        config['f2'],
         en,
-        output_folder=output_path,
-        all_delta=all_delta,
-        delta=delta,
-        limit=limit
+        output_folder=config['output_path'],
+        all_delta=config['all_delta'],
+        delta=config['delta'],
+        limit=config['limit']
     )
-
 
 if __name__ == "__main__":
     mvtgeneral()

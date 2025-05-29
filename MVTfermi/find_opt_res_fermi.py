@@ -1,16 +1,10 @@
 import os
-import sys
-import yaml
-from gdt.core import data_path
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
 import numpy as np 
-import csv
-
-import pandas as pd
 from scipy.optimize import curve_fit
 import matplotlib.patheffects as pe
 
