@@ -15,7 +15,7 @@ from .core import (
 )
 
 
-
+'''
 def mvtgeneral(
     delta=None, limit=None, trigger_number=None, bw=None, T0=None,
     T90=None, start_padding=None, end_padding=None, N=None, f1=None, f2=None,
@@ -34,7 +34,33 @@ def mvtgeneral(
             }
     default_cfg_file = "config_MVT_general.yaml"  # grabs all function args as dict
     config = load_and_merge_config(func_args, cli_args=None, default_config_file=default_cfg_file, parse_fn=parse_args_general)
+'''
+def mvtgeneral(
+    delta=None, limit=None, trigger_number=None, bw=None, T0=None,
+    T90=None, start_padding=None, end_padding=None, N=None, f1=None, f2=None,
+    en_lo=None, en_hi=None, cores=None, file_path=None, output_path=None,
+    all_delta=None, time_edges=None, counts=None, back_counts=None, config=None
+):
+    skip_keys = {'time_edges', 'counts', 'back_counts'}
     
+    # Grab all locals except skip_keys and None values
+    func_args = {
+        k: v for k, v in locals().items()
+        if k not in skip_keys and v is not None and k != "config"
+    }
+    # Add config only if it is set (not None)
+    if config is not None:
+        func_args['config'] = config
+
+    default_cfg_file = "config_MVT_general.yaml"
+    config = load_and_merge_config(
+        func_args,
+        cli_args=None,
+        default_config_file=default_cfg_file,
+        parse_fn=parse_args_general
+    )
+    # rest of your function ...
+
 
     # continue with specific logic for mvtfermi using merged config dict
     # 2. Post-process delta

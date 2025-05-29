@@ -159,6 +159,11 @@ def parse_args_fermi(args=None):
     # Also handle comma-separated det_list
     if parsed.get("det_list") and isinstance(parsed["det_list"], str):
         parsed["det_list"] = [d.strip() for d in parsed["det_list"].split(",")]
+    
+    if args is None:
+        parsed = parser.parse_args()
+    else:
+        parsed = parser.parse_args(args)
 
     return parsed
 
@@ -166,7 +171,10 @@ def parse_args_general(args=None):
     base = base_parser()
     parser = argparse.ArgumentParser(description="MVT General CLI", parents=[base])
     parser.add_argument("--file_path", type=str)
-    return vars(parser.parse_args(args=args or []))
+    if args is None:
+        return parser.parse_args()
+    else:
+        return parser.parse_args(args)
 
 
 
@@ -174,23 +182,35 @@ def parse_args_general(args=None):
 
 def load_and_merge_config(func_args=None, cli_args=None, default_config_file=None, parse_fn=None):
     func_args = func_args or {}
-    cli_args = cli_args or {}
 
-    # Load CLI args if not provided
-    if not cli_args and len(sys.argv) > 1:
-        if parse_fn is None:
-            raise ValueError("parse_fn must be provided if CLI args are expected.")
-        cli_args = parse_fn()
+    # Always try parsing CLI if not explicitly passed
+    if cli_args is None and len(sys.argv) > 1:
+        print("Parsing CLI args via parse_fn()")
+        cli_args = parse_fn()            # <-- change this line to the next one
+        cli_args = vars(cli_args)        # <-- convert Namespace to dict
 
-    # Determine config file path
+    else:
+        cli_args = cli_args or {}
+
     config_file = func_args.get('config') or cli_args.get('config') or default_config_file
 
-    yaml_config = {}
-    if config_file and os.path.exists(config_file):
-        with open(config_file, 'r') as f:
-            yaml_config = yaml.safe_load(f)
+    print(f"Trying to load config file: {config_file}")
+    if config_file:
+        config_file = config_file.strip().strip('"').strip("'")
+        if os.path.exists(config_file):
+            with open(config_file, 'r') as f:
+                yaml_config = yaml.safe_load(f)
+        else:
+            print("Config file path resolved but does not exist on disk.")
+            yaml_config = {}
+    else:
+        print("No config file provided.")
+        yaml_config = {}
 
-    config = merge_configs(func_args, cli_args, yaml_config)
-    return config
+    return merge_configs(func_args, cli_args, yaml_config)
+
+
+
+
 
 

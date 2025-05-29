@@ -14,6 +14,27 @@ from .core import (
     normalize_det_list
 )
 
+'''
+def mvtfermi(
+    delta=None, limit=None, trigger_number=None, bw=None, T0=None,
+    T90=None, start_padding=None, end_padding=None, N=None, f1=None, f2=None,
+    en_lo=None, en_hi=None, cores=None, data_path=None, output_path=None,
+    all_delta=None, background_intervals=None, det_list=None, config=None
+):
+    func_args = {
+            k: v for k, v in {
+                "delta": delta, "limit": limit, "trigger_number": trigger_number, "bw": bw,
+                "T0": T0, "T90": T90, "start_padding": start_padding, "end_padding": end_padding,
+                "N": N, "f1": f1, "f2": f2, "en_lo": en_lo, "en_hi": en_hi, "cores": cores,
+                "data_path": data_path, "output_path": output_path, "all_delta": all_delta,
+                "background_intervals": background_intervals, "det_list": det_list,
+                **({"config": config} if config else {})
+            }.items() if v is not None
+        }
+    
+    default_cfg_file = "config_MVT_fermi.yaml"
+    config_dic = load_and_merge_config(func_args, cli_args=None, default_config_file=default_cfg_file, parse_fn=parse_args_fermi)
+'''
 
 def mvtfermi(
     delta=None, limit=None, trigger_number=None, bw=None, T0=None,
@@ -21,45 +42,56 @@ def mvtfermi(
     en_lo=None, en_hi=None, cores=None, data_path=None, output_path=None,
     all_delta=None, background_intervals=None, det_list=None, config=None
 ):
-    func_args = {"delta": delta, "limit": limit, "trigger_number": trigger_number, "bw": bw,
-                 "T0": T0, "T90": T90, "start_padding": start_padding, "end_padding": end_padding, "N": N,
-                "f1": f1, "f2": f2, "en_lo": en_lo, "en_hi": en_hi, "cores": cores, "data_path": data_path,
-                "output_path": output_path, "all_delta": all_delta, "background_intervals": background_intervals,
-                "det_list": det_list, "config": config}
+    skip_keys = set()  # or add keys to skip if any
+
+    func_args = {
+        k: v for k, v in locals().items()
+        if k not in skip_keys and v is not None and k != "config"
+    }
+    if config is not None:
+        func_args['config'] = config
 
     default_cfg_file = "config_MVT_fermi.yaml"
-    config = load_and_merge_config(func_args, cli_args=None, default_config_file=default_cfg_file, parse_fn=parse_args_fermi)
-    config['background_intervals'] = normalize_background_intervals(config.get('background_intervals'))
+    config_dic = load_and_merge_config(
+        func_args,
+        cli_args=None,
+        default_config_file=default_cfg_file,
+        parse_fn=parse_args_fermi
+    )
+    # rest of your function ...
 
-    config["det_list"] = normalize_det_list(config["det_list"])
+
+    config_dic['background_intervals'] = normalize_background_intervals(config_dic.get('background_intervals'))
+    print('Here I am\n')
+    config_dic["det_list"] = normalize_det_list(config_dic["det_list"])
 
 
-    delta_raw = str(config.get('delta')).strip().lower() if config.get('delta') is not None else None
+    delta_raw = str(config_dic.get('delta')).strip().lower() if config_dic.get('delta') is not None else None
 
     if delta_raw == 'all':
-        config['delta'] = None
-        config['all_delta'] = True
+        config_dic['delta'] = None
+        config_dic['all_delta'] = True
     elif delta_raw in (None, 'none'):
-        config['delta'] = None
-        config['all_delta'] = False
+        config_dic['delta'] = None
+        config_dic['all_delta'] = False
     else:
         try:
-            config['delta'] = float(config['delta'])
-            config['all_delta'] = False
+            config_dic['delta'] = float(config_dic['delta'])
+            config_dic['all_delta'] = False
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid delta value: {config['delta']}")
+            raise ValueError(f"Invalid delta value: {config_dic['delta']}")
 
-    config['all_delta'] = all_delta or config.get('all_delta', False)
-    config['limit'] = str2bool(config.get('limit', True))
+    config_dic['all_delta'] = all_delta or config_dic.get('all_delta', False)
+    config_dic['limit'] = str2bool(config_dic.get('limit', True))
 
 
     #exit()
     # 3. Set up
-    T90 = config['T90']
-    nai_dets = [d for d in config['det_list'] if d.startswith('n')]
-    en = f"{config['en_lo']}to{config['en_hi']}keV"
+    T90 = config_dic['T90']
+    nai_dets = [d for d in config_dic['det_list'] if d.startswith('n')]
+    en = f"{config_dic['en_lo']}to{config_dic['en_hi']}keV"
     t_del = 0.064 if T90 <= 4.0 else 1.024
-    trigger_directory = os.path.join(config['data_path'], "bn" + config['trigger_number'])
+    trigger_directory = os.path.join(config_dic['data_path'], "bn" + config_dic['trigger_number'])
 
     delta_list = np.concatenate((
         np.arange(0.1, 1.0, 0.1),
@@ -74,12 +106,12 @@ def mvtfermi(
         raise ValueError("No valid delta ≤ T90")
 
     tt1, t0, tend = compute_grb_time_bounds(
-        config['T0'], T90, max(delta_list),
-        config['start_padding'], config['end_padding'], end_t90=2.0
+        config_dic['T0'], T90, max(delta_list),
+        config_dic['start_padding'], config_dic['end_padding'], end_t90=2.0
     )
 
-    file_write = f"all_arrays_{config['trigger_number']}_bw_{config['bw']}_delt_{max(delta_list)}.npz"
-    file_write = f"all_arrays_{config['trigger_number']}_bw_{config['bw']}_delt_1.0.npz"
+    file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_{max(delta_list)}.npz"
+    file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_1.0.npz"
     #print(f"File to write: {file_write}")
     file_write_path = os.path.join(trigger_directory, file_write)
 
@@ -93,47 +125,48 @@ def mvtfermi(
         time_edges, counts, back_counts = trigger_process(
             file_write,
             trigger_directory,
-            config['trigger_number'],
-            config['bw'],
-            config['background_intervals'],
+            config_dic['trigger_number'],
+            config_dic['bw'],
+            config_dic['background_intervals'],
             tt1,
             tend,
             t_del,
-            config['en_lo'],
-            config['en_hi'],
+            config_dic['en_lo'],
+            config_dic['en_hi'],
             nai_dets,
             t0
         )
 
     print('\n')
-    print("Final config:".center(20,'*'))
-    for k, v in config.items():
+    print("Final config_dic:".center(20,'*'))
+    for k, v in config_dic.items():
         print(f"{k}: {v}")
-
+    #exit()
     run_mvt_analysis(
-        config['trigger_number'],
+        config_dic['trigger_number'],
         time_edges,
         counts,
         back_counts,
-        config['T0'],
+        config_dic['T0'],
         T90,
         tt1,
-        config['bw'],
+        config_dic['bw'],
         valid_deltas,
-        config['start_padding'],
-        config['end_padding'],
-        config['N'],
-        config['cores'],
-        config['f1'],
-        config['f2'],
+        config_dic['start_padding'],
+        config_dic['end_padding'],
+        config_dic['N'],
+        config_dic['cores'],
+        config_dic['f1'],
+        config_dic['f2'],
         en,
-        output_folder=config['output_path'],
-        all_delta=config['all_delta'],
-        delta=config['delta'],
-        limit=config['limit']
+        output_folder=config_dic['output_path'],
+        all_delta=config_dic['all_delta'],
+        delta=config_dic['delta'],
+        limit=config_dic['limit']
     )
 
 
 
 if __name__ == "__main__":
+    import sys
     mvtfermi()
