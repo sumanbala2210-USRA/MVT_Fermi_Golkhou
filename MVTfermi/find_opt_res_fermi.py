@@ -133,6 +133,12 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
     
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
+    #print(f"length of grb_range: {len(grb_range)}")
+    #print(f"length of bkg_range: {len(bkg_range)}")
+    #print(f"grb_count min: {min(grb_count)}, bkg_count: {min(bkg_count)}")
+    #print(f"grb_count min: {max(grb_count)}, bkg_count: {max(bkg_count)}")
+
+    #print(f"tt1: {tt1}, tt2: {tt2}, bw: {bw}, N: {N}, f1: {f1}, f2: {f2}, k: {k}")
 
     delt = tt2-tt1
     
@@ -162,7 +168,8 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
             grb = h_grb[n1:n2+1]
 
             bgnd = h_bkg[n1_bkg:n2_bkg]
-            
+            if i==0 and j==0:
+                print(f"grb max: {max(grb)}, grb min: {min(grb)},length {len(grb)}")#, n1: {n1}, n2: {n2}, n1_bkg: {n1_bkg}, n2_bkg: {n2_bkg}")
             if len(grb) > len(bgnd):
                 grb = grb[:len(bgnd)]
             else:

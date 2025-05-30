@@ -161,21 +161,85 @@ def parse_args_fermi(args=None):
         parsed["det_list"] = [d.strip() for d in parsed["det_list"].split(",")]
     
     if args is None:
+        if any("ipykernel_launcher" in arg for arg in sys.argv):
+            return parser.parse_args([])
         parsed = parser.parse_args()
     else:
         parsed = parser.parse_args(args)
 
     return parsed
 
+'''
+def parse_args_fermi(args=None):
+    import sys
+    base = base_parser()
+    parser = argparse.ArgumentParser(description="MVT Fermi CLI", parents=[base])
+    parser.add_argument("--trigger_number", type=str)
+    parser.add_argument(
+        "--background_intervals",
+        type=str,
+        nargs='+',
+        help="Background intervals, e.g. --background_intervals -11.67 -1.04 57.5 69.58 or as a quoted comma-separated string"
+    )
+    parser.add_argument("--det_list", type=str)
+    parser.add_argument("--en_lo", type=int)
+    parser.add_argument("--en_hi", type=int)
+    parser.add_argument("--data_path", type=str)
+
+    # Determine how to parse: 
+    # - If args provided: parse those.
+    # - Else if running in Jupyter: ignore IPython args.
+    # - Else normal parsing.
+    if args is not None:
+        parsed_args = parser.parse_args(args)
+    elif any("ipykernel_launcher" in arg for arg in sys.argv):
+        parsed_args = parser.parse_args([])
+    else:
+        parsed_args = parser.parse_args()
+
+    parsed = vars(parsed_args)
+
+    # Normalize background_intervals
+    if parsed.get("background_intervals") is not None:
+        parsed["background_intervals"] = normalize_background_intervals(parsed["background_intervals"])
+
+    # Normalize det_list (comma-separated string to list)
+    if parsed.get("det_list") and isinstance(parsed["det_list"], str):
+        parsed["det_list"] = [d.strip() for d in parsed["det_list"].split(",")]
+
+    return parsed
+
+
 def parse_args_general(args=None):
     base = base_parser()
     parser = argparse.ArgumentParser(description="MVT General CLI", parents=[base])
     parser.add_argument("--file_path", type=str)
+
     if args is None:
-        return parser.parse_args()
+        # When running in Jupyter or IPython, avoid using sys.argv directly
+        import sys
+        if any("ipykernel_launcher" in arg for arg in sys.argv):
+            return parser.parse_args([])
+        else:
+            return parser.parse_args()
     else:
         return parser.parse_args(args)
+'''
 
+def parse_args_general(args=None):
+    base = base_parser()
+    parser = argparse.ArgumentParser(description="MVT General CLI", parents=[base])
+    parser.add_argument("--file_path", type=str)
+
+    # Determine how to parse
+    if args is not None:
+        parsed_args = parser.parse_args(args)
+    elif any("ipykernel_launcher" in arg for arg in sys.argv):
+        parsed_args = parser.parse_args([])  # skip Jupyter args
+    else:
+        parsed_args = parser.parse_args()
+
+    return parsed_args
 
 
 
@@ -185,7 +249,7 @@ def load_and_merge_config(func_args=None, cli_args=None, default_config_file=Non
 
     # Always try parsing CLI if not explicitly passed
     if cli_args is None and len(sys.argv) > 1:
-        print("Parsing CLI args via parse_fn()")
+        #print("Parsing CLI args via parse_fn()")
         cli_args = parse_fn()            # <-- change this line to the next one
         cli_args = vars(cli_args)        # <-- convert Namespace to dict
 
@@ -194,7 +258,7 @@ def load_and_merge_config(func_args=None, cli_args=None, default_config_file=Non
 
     config_file = func_args.get('config') or cli_args.get('config') or default_config_file
 
-    print(f"Trying to load config file: {config_file}")
+    #print(f"Trying to load config file: {config_file}")
     if config_file:
         config_file = config_file.strip().strip('"').strip("'")
         if os.path.exists(config_file):

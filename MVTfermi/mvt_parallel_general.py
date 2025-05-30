@@ -41,7 +41,7 @@ def mvtgeneral(
     en_lo=None, en_hi=None, cores=None, file_path=None, output_path=None,
     all_delta=None, time_edges=None, counts=None, back_counts=None, config=None
 ):
-    skip_keys = {'time_edges', 'counts', 'back_counts'}
+    skip_keys = {'time_edges', 'counts', 'back_counts', 'skip_keys'}
     
     # Grab all locals except skip_keys and None values
     func_args = {
@@ -53,38 +53,36 @@ def mvtgeneral(
         func_args['config'] = config
 
     default_cfg_file = "config_MVT_general.yaml"
-    config = load_and_merge_config(
+    config_dic = load_and_merge_config(
         func_args,
         cli_args=None,
         default_config_file=default_cfg_file,
         parse_fn=parse_args_general
     )
     # rest of your function ...
-
-
     # continue with specific logic for mvtfermi using merged config dict
     # 2. Post-process delta
 
-    delta_raw = str(config.get('delta')).strip().lower() if config.get('delta') is not None else None
+    delta_raw = str(config_dic.get('delta')).strip().lower() if config_dic.get('delta') is not None else None
 
     if delta_raw == 'all':
-        config['delta'] = None
-        config['all_delta'] = True
+        config_dic['delta'] = None
+        config_dic['all_delta'] = True
     elif delta_raw in (None, 'none'):
-        config['delta'] = None
-        config['all_delta'] = False
+        config_dic['delta'] = None
+        config_dic['all_delta'] = False
     else:
         try:
-            config['delta'] = float(config['delta'])
-            config['all_delta'] = False
+            config_dic['delta'] = float(config_dic['delta'])
+            config_dic['all_delta'] = False
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid delta value: {config['delta']}")
+            raise ValueError(f"Invalid delta value: {config_dic['delta']}")
 
-    config['all_delta'] = all_delta or config.get('all_delta', False)
-    config['limit'] = str2bool(config.get('limit', True))
+    config_dic['all_delta'] = all_delta or config_dic.get('all_delta', False)
+    config_dic['limit'] = str2bool(config_dic.get('limit', True))
 
-    T90 =config['T90']# config.get('T90', 4)
-    en = f"{config['en_lo']}to{config['en_hi']}keV"
+    T90 =config_dic['T90']# config_dic.get('T90', 4)
+    en = f"{config_dic['en_lo']}to{config_dic['en_hi']}keV"
 
     delta_list = np.concatenate((
         np.arange(0.1, 1.0, 0.1),
@@ -99,51 +97,60 @@ def mvtgeneral(
         raise ValueError("No valid delta ≤ T90")
 
     tt1, t0, tend = compute_grb_time_bounds(
-        config['T0'], T90, max(delta_list),
-        config['start_padding'], config['end_padding'], end_t90=2.0
+        config_dic['T0'], T90, max(delta_list),
+        config_dic['start_padding'], config_dic['end_padding'], end_t90=2.0
     )
     # Load data if not provided as function inputs
-    #if config['time_edges'] is None or config['counts'] is None or config['back_counts'] is None:
-    if os.path.exists(config['file_path']):
-        print(f"Reading data from {config['file_path']}")
-        data = np.load(config['file_path'])
-        time_edges = data["full_grb_time_lo_edge"]
-        counts = data["full_grb_counts"]
-        back_counts = data["full_back_counts"]
-    else:
-        raise ValueError("No input arrays provided and no .npz file found.")
+    if time_edges is None or counts is None or back_counts is None:
+        if os.path.exists(config_dic['file_path']):
+            print(f"Reading data from {config_dic['file_path']}")
+            data = np.load(config_dic['file_path'])
+            time_edges = data["full_grb_time_lo_edge"]
+            counts = data["full_grb_counts"]
+            back_counts = data["full_back_counts"]
+        else:
+            raise ValueError("No input arrays provided and no .npz file found.")
+        
+    temp_bw = np.round(time_edges[1] - time_edges[0],6)  # Assuming uniform bin width
+
+    if not np.allclose(config_dic['bw'], temp_bw, rtol=1e-9, atol=1e-12):
+        print("\n!!!!!!  WARNING: Input bin width does not match Data bin width. !!!!!!!")
+        print(f"Data bin width: {temp_bw}, Provided bin width: {config_dic['bw']}")
+        config_dic['bw'] = temp_bw
+        print(f"Using Data bin width {temp_bw} instead.")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
     print('\n')
     print("Final config:".center(20,'*'))
-    for k, v in config.items():
+    for k, v in config_dic.items():
         print(f"{k}: {v}")
-
-    #exit()
+    exit()
     # Finally run the analysis
     run_mvt_analysis(
-        config['trigger_number'],
+        config_dic['trigger_number'],
         time_edges,
         counts,
         back_counts,
-        config['T0'],
+        config_dic['T0'],
         T90,
         tt1,
-        config['bw'],
+        config_dic['bw'],
         valid_deltas,
-        config['start_padding'],
-        config['end_padding'],
-        config['N'],
-        config['cores'],
-        config['f1'],
-        config['f2'],
+        config_dic['start_padding'],
+        config_dic['end_padding'],
+        config_dic['N'],
+        config_dic['cores'],
+        config_dic['f1'],
+        config_dic['f2'],
         en,
-        output_folder=config['output_path'],
-        all_delta=config['all_delta'],
-        delta=config['delta'],
-        limit=config['limit']
+        output_folder=config_dic['output_path'],
+        all_delta=config_dic['all_delta'],
+        delta=config_dic['delta'],
+        limit=config_dic['limit']
     )
 
 if __name__ == "__main__":
-    mvtgeneral()
+    args = parse_args_general(argv=[])
+    mvtgeneral(args)
 
 

@@ -42,7 +42,7 @@ def mvtfermi(
     en_lo=None, en_hi=None, cores=None, data_path=None, output_path=None,
     all_delta=None, background_intervals=None, det_list=None, config=None
 ):
-    skip_keys = set()  # or add keys to skip if any
+    skip_keys = set('skip_keys')  # or add keys to skip if any
 
     func_args = {
         k: v for k, v in locals().items()
@@ -62,7 +62,7 @@ def mvtfermi(
 
 
     config_dic['background_intervals'] = normalize_background_intervals(config_dic.get('background_intervals'))
-    print('Here I am\n')
+    #print('Here I am\n')
     config_dic["det_list"] = normalize_det_list(config_dic["det_list"])
 
 
@@ -136,6 +136,14 @@ def mvtfermi(
             nai_dets,
             t0
         )
+
+    temp_bw = np.round(time_edges[1] - time_edges[0],6)  # Assuming uniform bin width
+    if not np.allclose(config_dic['bw'], temp_bw, rtol=1e-9, atol=1e-12):
+        print("\n!!!!!!  WARNING: Input bin width does not match Data bin width. !!!!!!!")
+        print(f"Data bin width: {temp_bw}, Provided bin width: {config['bw']}")
+        config_dic['bw'] = temp_bw
+        print(f"Using Data bin width {temp_bw} instead.")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
     print('\n')
     print("Final config_dic:".center(20,'*'))

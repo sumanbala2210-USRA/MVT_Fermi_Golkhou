@@ -177,18 +177,26 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
     add_index = int(delt/bw)
 
     padding = bw *10
-    #grb_start = np.searchsorted(time_edges, tt1-padding)
-    grb_start = int((tt1 - padding - time_edges[0]) / bw)+1
+    grb_start = np.searchsorted(time_edges, tt1-padding)
+    #grb_start = int((tt1 - padding - time_edges[0]) / bw)+1
     #grb_end = np.searchsorted(lc_lo_edges, tt1+delt+padding)
     grb_end = grb_start + int((delt+2*padding)/bw)
     #grb_end1 = grb_start1 + int((delt+2*padding)/bw)
+    #print('max time_edges=', max(time_edges))
+    #print('min time_edges=', min(time_edges))
+    #print('min counts=', min(counts))
+    #print('max counts=', max(counts))
+    #print('min back_counts=', min(back_counts))
+    #print('max back_counts=', max(back_counts))
     #print('tt1=', tt1)
     #print('tmax=', tt1+delt+padding)
     #print('tend=', tend)
     #print(f'grb_start= {grb_start}, grb_end = {grb_end}')
+    #print(len(time_edges), len(counts), len(back_counts))
     #print(f'grb_start= {time_edges[grb_start]}, grb_end = {time_edges[grb_end]}')
     #print(f'grb_start1= {time_edges[grb_start1]}, grb_end1 = {time_edges[grb_end1]}')
     #print(f'New grb end = {end_index}')
+    #print(f'time_edges bw = {time_edges[grb_start]-time_edges[grb_start+1]}')
 
     e_bw = e_n(bw)
 
@@ -218,10 +226,11 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
     for k in range(nn):
         tt1 += delt
         tt2 = tt1 + delt
+
         if tt2 > T0 + T90 + (delt * tend) or tt2 + delt > max(time_edges):
             break
         tr[k] = tt1
-        #print(f"Processing iteration {k+1}/{nn}: tt1 = {tt1}, tt2 = {tt2}, bw = {bw}, delt = {delt}")
+        
 
         grb_start += add_index 
         grb_end += add_index
@@ -231,6 +240,14 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
 
         bkg_range = time_edges[int(grb_start):int(bkg_end)]
         bkg_count = back_counts[int(grb_start):int(bkg_end)]
+        #if k == 0:
+            #print(f"tt1 = {tt1}, tt2 = {tt2}")
+            #print(f"Processing iteration {k+1}/{nn}: tt1 = {tt1}, tt2 = {tt2}, bw = {bw}, delt = {delt}")
+            #print(f'grb_range = {grb_range[0]} to {grb_range[-1]}, grb_count = {len(grb_count)}\n')
+        #print(f'bkg_range = {bkg_range[0]} - {bkg_range[-1]}, bkg_count = {len(bkg_count)}')
+        #print(f'grb_start = {grb_start}, grb_end = {grb_end}, bkg_end = {bkg_end}')
+        #print(f'grb_count max = {np.max(grb_count)}, grb_count min = {np.min(grb_count)}')
+        #print(f'bkg_count max = {np.max(bkg_count)}, bkg_count min = {np.min(bkg_count)}')
         #params = (grb_range, grb_count, bkg_range, bkg_count, tt1, tt2, bw, N, f1, f2)
         #print(f'starting for {k
         '''
@@ -269,11 +286,12 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
                     continue  # skip this resolution level
                 xn_bkg,_ = convert_res_coarse(bkg_range, bkg_count, i + 1)
                 xn_src,_ = convert_res_coarse(grb_range, grb_count, i + 1)
+        #print(f"n1_array = {max(n1_array)}, n2_array = {max(n2_array)}, n3_array = {max(n3_array)}, n4_array = {max(n4_array)}\n")
 
         tasks.append((trigger_number, grb_range, grb_count, bkg_range, bkg_count, tt1, tt2, bw, N, f1, f2, k, path, n1_array, n2_array, n3_array, n4_array, all_fig))
-    
+    exit()
     max_workers = min(cores, len(tasks))  # Use fewer workers if needed
-    #print(f"len(tasks)= {len(tasks)}, nn={nn}")
+    print(f"len(tasks)= {len(tasks)}, nn={nn}")
     results = []
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_iteration, task) for task in tasks]
