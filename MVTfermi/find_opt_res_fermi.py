@@ -168,8 +168,8 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
             grb = h_grb[n1:n2+1]
 
             bgnd = h_bkg[n1_bkg:n2_bkg]
-            if i==0 and j==0:
-                print(f"grb max: {max(grb)}, grb min: {min(grb)},length {len(grb)}")#, n1: {n1}, n2: {n2}, n1_bkg: {n1_bkg}, n2_bkg: {n2_bkg}")
+            #if i==0 and j==0:
+            #    print(f"grb max: {max(grb)}, grb min: {min(grb)},length {len(grb)}")#, n1: {n1}, n2: {n2}, n1_bkg: {n1_bkg}, n2_bkg: {n2_bkg}")
             if len(grb) > len(bgnd):
                 grb = grb[:len(bgnd)]
             else:

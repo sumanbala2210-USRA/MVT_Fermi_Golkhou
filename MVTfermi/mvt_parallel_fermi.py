@@ -1,5 +1,6 @@
 
 import os
+import sys
 import numpy as np 
 
 from .mvt_analysis import run_mvt_analysis
@@ -42,7 +43,7 @@ def mvtfermi(
     en_lo=None, en_hi=None, cores=None, data_path=None, output_path=None,
     all_delta=None, background_intervals=None, det_list=None, config=None
 ):
-    skip_keys = set('skip_keys')  # or add keys to skip if any
+    skip_keys = {'skip_keys'}  # or add keys to skip if any
 
     func_args = {
         k: v for k, v in locals().items()
@@ -115,6 +116,8 @@ def mvtfermi(
     #print(f"File to write: {file_write}")
     file_write_path = os.path.join(trigger_directory, file_write)
 
+    print(f'\n@@@@@@@@@@@@@@@@@ Starting Analysis for {config_dic['trigger_number']} @@@@@@@@@@@@@@@@@')
+
     if os.path.exists(file_write_path):
         print(f"Reading data from {file_write}")
         data = np.load(file_write_path)
@@ -145,12 +148,13 @@ def mvtfermi(
         print(f"Using Data bin width {temp_bw} instead.")
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
-    print('\n')
-    print("Final config_dic:".center(20,'*'))
+    #print('\n')
+    print("\n************ Final config_dic ************")
     for k, v in config_dic.items():
         print(f"{k}: {v}")
     #exit()
-    run_mvt_analysis(
+
+    return run_mvt_analysis(
         config_dic['trigger_number'],
         time_edges,
         counts,
@@ -174,7 +178,11 @@ def mvtfermi(
     )
 
 
+def mvtfermi_cli():
+    mvtfermi()  # don't return, suppress output
+
+
 
 if __name__ == "__main__":
-    import sys
-    mvtfermi()
+    # Necessary for macOS multiprocessing to avoid recursive execution
+    mvtfermi_cli()

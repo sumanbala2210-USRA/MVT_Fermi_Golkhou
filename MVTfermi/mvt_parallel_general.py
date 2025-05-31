@@ -126,7 +126,7 @@ def mvtgeneral(
         print(f"{k}: {v}")
     exit()
     # Finally run the analysis
-    run_mvt_analysis(
+    return run_mvt_analysis(
         config_dic['trigger_number'],
         time_edges,
         counts,
@@ -149,8 +149,15 @@ def mvtgeneral(
         limit=config_dic['limit']
     )
 
+def mvtgeneral_cli():
+    mvtgeneral()  # don't return, suppress output
+'''    
 if __name__ == "__main__":
     args = parse_args_general(argv=[])
     mvtgeneral(args)
+'''
+if __name__ == "__main__":
+    args = parse_args_general(argv=[])
+    mvtgeneral_cli(args)
 
 

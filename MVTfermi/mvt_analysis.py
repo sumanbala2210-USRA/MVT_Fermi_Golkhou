@@ -215,16 +215,16 @@ def grb_mvt_significance(
   # or float('-inf') to clearly mark a failure
         
 
-    print(f'####################  Done for delta = {delt} ####################\n')
+    print(f'####################  Done for delta = {delt} ####################')
     plt.close('all')
 
-    return significance_z, min_mvt, error_mvt, tr  # This is the value used in binary search
+    return significance_weighted, min_mvt, error_mvt, tr  # This is the value used in binary search
 
 
 def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
                     bw,time_edges,   counts, back_counts, output_path,
                     output_file_path, start_padding, end_padding, N,
-                    cores,f1, f2, en, threshold=3.0, all_delta=False, all_fig=False, limit=True):
+                    cores,f1, f2, en, threshold=5.0, all_delta=False, all_fig=False, limit=True):
     
 
     cache = {}
@@ -278,19 +278,32 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
         "is_upper_limit": False
     }
 
+    last_tried_delta = None
+    last_significance = None
+    last_mvt = None
+    last_mvt_error = None
+    last_tr = None
+
     while low <= high:
         mid = (low + high) // 2
         delta = valid_deltas[mid]
 
         if delta not in cache:
             significance, mvt, mvt_error, tr = grb_mvt_significance(
-                delta, trigger_number, T0, T90, bw,tt1, time_edges, counts, back_counts, output_path, output_file_path, 
-                start_padding, end_padding, N, cores, f1, f2, en, all_fig=all_fig
-                
+                delta, trigger_number, T0, T90, bw, tt1, time_edges, counts, back_counts,
+                output_path, output_file_path, start_padding, end_padding, N,
+                cores, f1, f2, en, all_fig=all_fig
             )
             cache[delta] = (significance, mvt, mvt_error, tr)
         else:
             significance, mvt, mvt_error, tr = cache[delta]
+
+        # Track the last tried values
+        last_tried_delta = delta
+        last_significance = significance
+        last_mvt = mvt
+        last_mvt_error = mvt_error
+        last_tr = tr
 
         if significance > threshold:
             result.update({
@@ -304,7 +317,19 @@ def binary_search_mvt(valid_deltas, trigger_number, T0, T90, tt1,
         else:
             low = mid + 1
 
+    # If result was never updated (no delta passed the threshold)
+    if result["delta"] is None:
+        result.update({
+            "tr": last_tr,
+            "delta": last_tried_delta,
+            "mvt": last_mvt,
+            "mvt_error": last_mvt_error,
+            "significance": last_significance,
+            "is_upper_limit": True  # optional: indicate that this is a fallback
+        })
+
     return result
+
 
 
 
@@ -340,13 +365,13 @@ def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, t
         print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
         print(f'\n@@@@@@@@@@@@@@@@@ Analysis SAVED in {output_dir} @@@@@@@@@@@@@@@@@\n')
 
-        return (tr, delta, mvt, mvt_error, significance, False)
+        return tr, delta, mvt, mvt_error, significance, False
 
     # --- CASE 2: Full binary search or all deltas ---
     result = binary_search_mvt(
         valid_deltas, trigger_number, T0, T90, tt1, bw, time_edges, counts, back_counts,
         output_path, output_file_path, start_padding, end_padding, N, cores, f1, f2, en,
-        threshold=3.0, all_delta=all_delta, all_fig=all_fig, limit=limit
+        threshold=5.0, all_delta=all_delta, all_fig=all_fig, limit=limit
     )
     
     MVT_delt_plot(output_file_path, output_plot_path)
@@ -383,4 +408,4 @@ def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, t
     print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
     print(f'\n@@@@@@@@@@@@@@@@@ Analysis SAVED in {output_dir} @@@@@@@@@@@@@@@@@\n')
     
-    return (result["tr"], result["delta"], result["mvt"], result["mvt_error"], result["significance"], result["is_upper_limit"])
+    return result["tr"], result["delta"], result["mvt"], result["mvt_error"], result["significance"], result["is_upper_limit"]

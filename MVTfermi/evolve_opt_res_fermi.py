@@ -289,7 +289,7 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
         #print(f"n1_array = {max(n1_array)}, n2_array = {max(n2_array)}, n3_array = {max(n3_array)}, n4_array = {max(n4_array)}\n")
 
         tasks.append((trigger_number, grb_range, grb_count, bkg_range, bkg_count, tt1, tt2, bw, N, f1, f2, k, path, n1_array, n2_array, n3_array, n4_array, all_fig))
-    exit()
+    #exit()
     max_workers = min(cores, len(tasks))  # Use fewer workers if needed
     print(f"len(tasks)= {len(tasks)}, nn={nn}")
     results = []
