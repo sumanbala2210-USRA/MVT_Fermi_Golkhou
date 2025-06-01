@@ -160,6 +160,7 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
    
     
     time_interval = T90 + (tend*delt)+(start_padding*delt)+T0
+    
     nn = int(time_interval/delt+1)
     N_iter= int(1/bw)
     n1_array = np.zeros(N_iter, dtype=int)
@@ -177,8 +178,8 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
     add_index = int(delt/bw)
 
     padding = bw *10
-    grb_start = np.searchsorted(time_edges, tt1-padding)
-    #grb_start = int((tt1 - padding - time_edges[0]) / bw)+1
+    #grb_start = np.searchsorted(time_edges, tt1-padding)
+    grb_start = int((tt1 - padding - time_edges[0]) / bw)+1
     #grb_end = np.searchsorted(lc_lo_edges, tt1+delt+padding)
     grb_end = grb_start + int((delt+2*padding)/bw)
     #grb_end1 = grb_start1 + int((delt+2*padding)/bw)
@@ -227,7 +228,7 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
         tt1 += delt
         tt2 = tt1 + delt
 
-        if tt2 > T0 + T90 + (delt * tend) or tt2 + delt > max(time_edges):
+        if tt2 > T0 + T90 + ((delt+2) * end_padding) or tt2 + delt > max(time_edges):
             break
         tr[k] = tt1
         

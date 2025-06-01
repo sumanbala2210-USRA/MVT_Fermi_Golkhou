@@ -81,7 +81,7 @@ def trigger_process(
         tuple: (full_grb_time_lo_edge, full_grb_counts, full_back_counts) or (None, None, None) on failure.
     """
     try:
-        print(f"Generating and saving data to {file_write}")
+        print(f"Generating and saving data to \n{file_write}")
         energy_range_nai = (en_lo, en_hi)
         trange_bkg = (bkgd_range[0][0] - 10, bkgd_range[1][1] + 10)
         trange = (tt1 - 20, tend + 20)

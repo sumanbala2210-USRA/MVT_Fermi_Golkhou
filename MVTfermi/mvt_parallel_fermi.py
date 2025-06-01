@@ -99,9 +99,18 @@ def mvtfermi(
         np.arange(1.0, 5.0, 1.0)
     ))
     T90_rounded = round(T90, 2)
+    '''
     if np.max(delta_list) > T90_rounded and T90_rounded not in delta_list:
         delta_list = np.append(delta_list, T90_rounded)
         delta_list = np.sort(delta_list)
+    '''
+    # Ensure T90_rounded is in the list
+    if T90_rounded not in delta_list:
+        delta_list = np.append(delta_list, T90_rounded)
+    
+    # Keep only values ≤ T90_rounded, and sort
+    delta_list = np.sort(delta_list[delta_list <= T90_rounded])
+
     valid_deltas = delta_list[delta_list <= T90_rounded]
     if valid_deltas.size == 0:
         raise ValueError("No valid delta ≤ T90")
@@ -111,8 +120,12 @@ def mvtfermi(
         config_dic['start_padding'], config_dic['end_padding'], end_t90=2.0
     )
 
-    file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_{max(delta_list)}.npz"
-    file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_1.0.npz"
+    if config_dic['delta'] is None or config_dic['delta'] < max(delta_list):
+        file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_{max(delta_list)}.npz"
+    else:
+        file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_{np.round(config_dic['delta'],2)}.npz"
+        
+    #file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_1.0.npz"
     #print(f"File to write: {file_write}")
     file_write_path = os.path.join(trigger_directory, file_write)
 
@@ -125,6 +138,7 @@ def mvtfermi(
         counts = data["full_grb_counts"]
         back_counts = data["full_back_counts"]
     else:
+        
         time_edges, counts, back_counts = trigger_process(
             file_write,
             trigger_directory,

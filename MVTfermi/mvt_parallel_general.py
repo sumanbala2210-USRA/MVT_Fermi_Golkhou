@@ -89,9 +89,18 @@ def mvtgeneral(
         np.arange(1.0, 5.0, 1.0)
     ))
     T90_rounded = round(T90, 2)
+    '''
     if np.max(delta_list) > T90_rounded and T90_rounded not in delta_list:
         delta_list = np.append(delta_list, T90_rounded)
         delta_list = np.sort(delta_list)
+    '''
+    # Ensure T90_rounded is in the list
+    if T90_rounded not in delta_list:
+        delta_list = np.append(delta_list, T90_rounded)
+    
+    # Keep only values ≤ T90_rounded, and sort
+    delta_list = np.sort(delta_list[delta_list <= T90_rounded])
+    
     valid_deltas = delta_list[delta_list <= T90_rounded]
     if valid_deltas.size == 0:
         raise ValueError("No valid delta ≤ T90")
@@ -121,10 +130,10 @@ def mvtgeneral(
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
     print('\n')
-    print("Final config:".center(20,'*'))
+    print("\n************ Final config_dic ************")
     for k, v in config_dic.items():
         print(f"{k}: {v}")
-    exit()
+    #exit()
     # Finally run the analysis
     return run_mvt_analysis(
         config_dic['trigger_number'],
