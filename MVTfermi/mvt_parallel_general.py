@@ -129,6 +129,14 @@ def mvtgeneral(
         print(f"Using Data bin width {temp_bw} instead.")
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 
+    print(config_dic['output_path'])
+    if not os.path.exists(config_dic['output_path']):
+        print("\nXXXXXXXXXXXXXXX  Please check the 'output_path'   XXXXXXXXXXXXXX")
+        print(f"'output_path': {config_dic['output_path']}")
+        print('Does NOT exists')
+        print('XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX\n')
+        raise RuntimeError(f"'output_path' does not exist")
+
     print('\n')
     print("\n************ Final config_dic ************")
     for k, v in config_dic.items():
