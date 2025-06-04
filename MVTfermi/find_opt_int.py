@@ -119,9 +119,10 @@ def convert_res_coarse(x, h, fact):
     return x1, h1
 
 
-def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range, bkg_count, tt1, tt2, bw, N,f1,f2,k,path, src_start_n, src_end_n, bkg_start_n, bkg_end_n, Fig):
+def find_optimum_int(trigger_number, grb_range, grb_count, bkg_range, bkg_count, tt1, tt2, bw, N,f1,f2,k,path, Fig):
 
-    N_iter= int(1/bw)
+    delt = tt2-tt1
+    N_iter= int(delt/bw)
     bin_width = np.zeros(N_iter, dtype=np.float64)
     ratio_var = np.zeros(N_iter, dtype=np.float64)
     num = np.zeros(N_iter, dtype=np.float64)
@@ -139,8 +140,6 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
     #print(f"grb_count min: {max(grb_count)}, bkg_count: {max(bkg_count)}")
 
     #print(f"tt1: {tt1}, tt2: {tt2}, bw: {bw}, N: {N}, f1: {f1}, f2: {f2}, k: {k}")
-
-    delt = tt2-tt1
     
     if Fig:
         file_name =f'{trigger_number}_{k}.pdf'
@@ -161,10 +160,10 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
         xn_bkg = bkg_range.copy()
         
         for i in range(N_iter):
-            n1 = src_start_n[i]
-            n2 = src_end_n[i]
-            n1_bkg = bkg_start_n[i] # n1_bkg_array[i]
-            n2_bkg = bkg_end_n[i] # n3_array[i]
+            n1 = np.searchsorted(xn_grb, tt1, side='left')
+            n2 = np.searchsorted(xn_grb, tt2, side='right')
+            n1_bkg = np.searchsorted(xn_bkg, tt1, side='left')
+            n2_bkg = np.searchsorted(xn_bkg, tt2, side='right')
             grb = h_grb[n1:n2+1]
 
             bgnd = h_bkg[n1_bkg:n2_bkg]
@@ -179,7 +178,7 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
             #if bin_width_tem>0.09:
             #    print('bin_width_tem=', bin_width_tem)
             #if len(grb) <= 2:# or bin_width_tem <= 0.1:
-            if len(grb) <= 2:
+            if len(grb) <= 2 or bin_width_tem >5:
                 continue
             #bin_width[i] = xn[1] - xn[0]
             dif_grb = np.diff(grb)
@@ -214,7 +213,13 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
     mean_ratio_var = np.mean(ratio_var_list_truncated, axis=0)
     rms_ratio_var = np.sqrt(np.mean(np.square(ratio_var_list_truncated - mean_ratio_var), axis=0))
 
-    moving_avg = variable_window_moving_average(bin_width_sel, mean_ratio_var, bw)
+    mask_for_ratio_var = bin_width_sel < min(max(bin_width_sel)/3,3.0)
+
+    #print(f"Selected bin width range: {bin_width_sel[mask_for_ratio_var]}")
+    #print(f"Selected bin width range: {len(bin_width_sel[mask_for_ratio_var])} bins")
+    #print(f"Selected bin width range: {bin_width_sel[mask_for_ratio_var]}, len: {len(bin_width_sel[mask_for_ratio_var])}")
+    #print(f"Mean ratio variance: {len(mean_ratio_var[mask_for_ratio_var])}")
+    moving_avg = variable_window_moving_average(bin_width_sel[mask_for_ratio_var], mean_ratio_var[mask_for_ratio_var], bw)
     min_index = np.argmin(moving_avg)
     corresponding_bin_width = bin_width_sel[min_index]
 
@@ -322,7 +327,7 @@ def find_optimum_resolution_diff(trigger_number, grb_range, grb_count, bkg_range
         
         # Moving average
         ax.plot(
-            bin_width_sel, moving_avg,
+            bin_width_sel[mask_for_ratio_var], moving_avg,
             linestyle='-', color=color_avg, linewidth=1.2, label='Moving Average'
         )
         

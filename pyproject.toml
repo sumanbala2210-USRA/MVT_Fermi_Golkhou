@@ -47,6 +47,7 @@ dependencies = [
 [project.scripts]
 MVTfermi = "MVTfermi.mvt_parallel_fermi:mvtfermi_cli"
 MVTgeneral = "MVTfermi.mvt_parallel_general:mvtgeneral_cli"
+MVTint = "MVTfermi.mvt_integral_fermi:mvtintegral"
 
 [project.urls]
 Homepage = "https://github.com/sumanbala2210-USRA/mvt_fermi"

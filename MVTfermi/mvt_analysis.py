@@ -14,6 +14,7 @@ import pandas as pd
 from scipy.interpolate import interp1d
 
 from .evolve_opt_res_fermi import evolve_optimum_resolution_diff
+from .evolve_opt_int import evolve_optimum_int
 from .find_opt_res_fermi import ExponentialFloat
 
 
@@ -409,3 +410,98 @@ def run_mvt_analysis(trigger_number, time_edges, counts, back_counts, T0, T90, t
     print(f'\n@@@@@@@@@@@@@@@@@ Analysis SAVED in {output_dir} @@@@@@@@@@@@@@@@@\n')
     
     return result["tr"], result["delta"], result["mvt"], result["mvt_error"], result["significance"], result["is_upper_limit"]
+
+
+
+
+
+def grb_mvt_significance_int(
+    delta,
+    trigger_number,
+    T0,
+    T90,
+    bw,tt1,
+    time_edges, counts, back_counts,
+    output_dir,
+    output_file_path,
+    start_padding,
+    end_padding,
+    N,
+    cores,
+    f1,
+    f2,
+    en,
+    all_fig
+):
+    delt= round(delta, 2)
+    print(f'\n$$$$$$$$$$$$$  Starting MVT calculation for delta = {delt} $$$$$$$$$$$$$')
+    
+    try:
+        #print('full_grb_time_lo_edge', full_grb_time_lo_edge[0])
+        #print('full_grb_time_lo_edge max', full_grb_time_lo_edge[-1])
+        tr, min_mvt, error_mvt, significance_z, significance_weighted, snr = evolve_optimum_int(
+            trigger_number,
+            en,
+            time_edges,
+            counts,
+            time_edges,
+            back_counts,
+            T0,
+            T90,
+            start_padding,
+            end_padding,
+            delt,
+            bw,
+            N,
+            cores,
+            f1,
+            f2,
+            path=output_dir,
+            all_fig=all_fig,
+        )
+    
+    except Exception as e:
+        print(f"\n!!!!!!!! Error computing MVT for {trigger_number} at delta={delt} !!!!!!!!\n{e}")
+        
+        # Set all values to NaN or fallback
+        tr = -100
+        min_mvt = error_mvt = np.nan
+        significance_z = significance_weighted = snr = np.nan
+    
+
+    return significance_weighted, min_mvt, error_mvt, tr  # This is the value used in binary search
+
+
+
+
+def run_mvt_analysis_int(trigger_number, time_edges, counts, back_counts, T0, T90, tt1, bw,
+                     valid_deltas, start_padding, end_padding, N, cores, f1, f2, en, delta, 
+                     output_folder=None, all_delta=False, all_fig = True, limit=True):
+    
+    time_now = datetime.now().strftime("%y_%m_%d_%H:%M:%S")
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_dir = f'BN{trigger_number}_MVT'#_{time_now}'   ############## Change this to your desired output directory name
+    output_path = os.path.join(output_folder or script_dir, output_dir)
+    os.makedirs(output_path, exist_ok=True)
+
+    output_file_path = os.path.join(output_path, output_dir + '.csv')
+
+    # --- CASE 1: Run for a specific delta ---
+    
+    print(f"\n@@@@@@@@@@@@@@ Running MVT analysis for specific delta = {delta:.2f}s @@@@@@@@@@@@@@@")
+    significance, mvt, mvt_error, tr = grb_mvt_significance_int(
+        delta, trigger_number, T0, T90, bw, tt1, time_edges, counts, back_counts,
+        output_path, output_file_path, start_padding, end_padding, N, cores, f1, f2, en, all_fig=all_fig
+    )
+    val_fmt = ExponentialFloat(mvt, n=2, pow=-3)
+    err_fmt = ExponentialFloat(mvt_error, n=2, pow=val_fmt.pow)
+    formatted = f'({val_fmt.scaled_str()} ± {err_fmt.scaled_str()})ms'
+
+    print('\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+    print(f'MVT = {formatted}')
+    print(f'Δ = {delta:.2f}, Tr = {tr:.2f} – {tr + delta:.2f}s')
+    print(f'Significance = {significance:.2f}')
+    print('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@')
+    print(f'\n@@@@@@@@@@@@@@@@@ Analysis SAVED in {output_dir} @@@@@@@@@@@@@@@@@\n')
+
+    return tr, delta, mvt, mvt_error, significance, False

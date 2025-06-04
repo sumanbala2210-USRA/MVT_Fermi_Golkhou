@@ -129,7 +129,7 @@ def mvtfermi(
     #print(f"File to write: {file_write}")
     file_write_path = os.path.join(trigger_directory, file_write)
 
-    print(f'\n@@@@@@@@@@@@@@@@@ Starting Analysis for {config_dic['trigger_number']} @@@@@@@@@@@@@@@@@')
+    print(f"\n@@@@@@@@@@@@@@@@@ Starting Analysis for {config_dic['trigger_number']} @@@@@@@@@@@@@@@@@")
 
     if os.path.exists(file_write_path):
         print(f"Reading data from {file_write}")
