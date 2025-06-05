@@ -191,7 +191,7 @@ def evolve_optimum_int(trigger_number,en, time_edges, counts, back_edges, back_c
     
     nn = int((T90-T0)/delt+2)
 
-    #print(f"tt1 = {tt1}, T0 = {T0}, T90 = {T90}, tend = {tend}, delt = {delt}, bw = {ExponentialFloat(bw)}, nn = {nn}, f1={f1}, f2={f2}")
+    print(f"tt1 = {tt1}, T0 = {T0}, T90 = {T90}, tend = {tend}, delt = {delt}, bw = {ExponentialFloat(bw)}, nn = {nn}, f1={f1}, f2={f2}")
     #info_trig = f' BN: {trigger_number}, {en}, T90={T90}, bw= {bw}, delt= {delt}, T0= {T0}, ({f1}, {f2})$\sigma$'
     op_tim = np.zeros(nn, dtype=np.float64)
     err_op_tim = np.zeros(nn, dtype=np.float64)

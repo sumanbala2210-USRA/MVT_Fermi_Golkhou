@@ -96,7 +96,7 @@ def mvtfermi(
 
     delta_list = np.concatenate((
         np.arange(0.1, 1.0, 0.1),
-        np.arange(1.0, 5.0, 1.0)
+        np.arange(1.0, 7.0, 1.0)
     ))
     T90_rounded = round(T90, 2)
     '''
@@ -109,9 +109,10 @@ def mvtfermi(
         delta_list = np.append(delta_list, T90_rounded)
     
     # Keep only values ≤ T90_rounded, and sort
-    delta_list = np.sort(delta_list[delta_list <= T90_rounded])
+    #delta_list = np.sort(delta_list[delta_list <= T90_rounded])
 
-    valid_deltas = delta_list[delta_list <= T90_rounded]
+    valid_deltas = delta_list#[delta_list <= T90_rounded]
+    valid_deltas = np.sort(delta_list)
     if valid_deltas.size == 0:
         raise ValueError("No valid delta ≤ T90")
 

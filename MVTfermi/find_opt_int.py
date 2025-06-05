@@ -213,7 +213,7 @@ def find_optimum_int(trigger_number, grb_range, grb_count, bkg_range, bkg_count,
     mean_ratio_var = np.mean(ratio_var_list_truncated, axis=0)
     rms_ratio_var = np.sqrt(np.mean(np.square(ratio_var_list_truncated - mean_ratio_var), axis=0))
 
-    mask_for_ratio_var = bin_width_sel < min(max(bin_width_sel)/3,3.0)
+    mask_for_ratio_var = bin_width_sel < min(max(bin_width_sel)/3,0.5)
 
     #print(f"Selected bin width range: {bin_width_sel[mask_for_ratio_var]}")
     #print(f"Selected bin width range: {len(bin_width_sel[mask_for_ratio_var])} bins")
@@ -225,8 +225,8 @@ def find_optimum_int(trigger_number, grb_range, grb_count, bkg_range, bkg_count,
 
     dt1 = corresponding_bin_width / f1
     dt2 = corresponding_bin_width * f2
-    k1 = np.searchsorted(bin_width_sel, dt1) if np.searchsorted(bin_width_sel, dt1) < len(bin_width_sel) else 0
-    k2 = np.searchsorted(bin_width_sel, dt2) if np.searchsorted(bin_width_sel, dt2) < len(bin_width_sel) else len(bin_width)
+    k1 = np.searchsorted(bin_width_sel, dt1) if np.searchsorted(bin_width_sel, dt1) < len(bin_width_sel) else 4
+    k2 = np.searchsorted(bin_width_sel, dt2) if np.searchsorted(bin_width_sel, dt2) < len(bin_width_sel) else len(bin_width_sel)/4
     #print(f"Selected bin width range: {bin_width_sel[k1:k2]}")
     #print(f"Selected bin width range: , k1: {k1}, k2: {k2}")
 
@@ -375,7 +375,16 @@ def find_optimum_int(trigger_number, grb_range, grb_count, bkg_range, bkg_count,
         plt.savefig(fig_path,facecolor=fig.get_facecolor(), bbox_inches='tight')
         plt.close()
 
-    return np.exp(x_min), error_x, ExponentialFloat(opt_signal), k, file_name
+    if np.isnan(x_min) or np.isinf(x_min):
+        print("Warning: x_min is NaN or Inf, returning default values.")
+        return 1.0, 2.0, ExponentialFloat(1.0), k, file_name
+    if np.exp(x_min) < bw:
+        return 1.0, 1.0, ExponentialFloat(1.0), k, file_name
+    if np.exp(x_min) > 1:
+        print(f"Warning: x_min ({x_min}) is greater than 10.0, returning default values.")
+        return 1.0, 1.0, ExponentialFloat(10.0), k, file_name
+    else:
+        return np.exp(x_min), error_x, ExponentialFloat(opt_signal), k, file_name
     
 
 

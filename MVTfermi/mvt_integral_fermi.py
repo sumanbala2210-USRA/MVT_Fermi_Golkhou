@@ -87,7 +87,7 @@ def mvtintegral(
 
     #exit()
     # 3. Set up
-    config_dic['T90'] = 4
+    #config_dic['T90'] = 4
     T90 = config_dic['T90']
     nai_dets = [d for d in config_dic['det_list'] if d.startswith('n')]
     en = f"{config_dic['en_lo']}to{config_dic['en_hi']}keV"
@@ -96,7 +96,7 @@ def mvtintegral(
 
     delta_list = np.concatenate((
         np.arange(0.1, 1.0, 0.1),
-        np.arange(1.0, 5.0, 1.0)
+        np.arange(1.0, 7.0, 1.0)
     ))
     T90_rounded = round(T90, 2)
     '''
@@ -109,9 +109,11 @@ def mvtintegral(
         delta_list = np.append(delta_list, T90_rounded)
     
     # Keep only values ≤ T90_rounded, and sort
-    delta_list = np.sort(delta_list[delta_list <= T90_rounded])
+    #delta_list = np.sort(delta_list[delta_list <= T90_rounded])
 
-    valid_deltas = delta_list[delta_list <= T90_rounded]
+    #valid_deltas = delta_list[delta_list <= T90_rounded]
+    valid_deltas = delta_list#[delta_list <= T90_rounded]
+    valid_deltas = np.sort(delta_list)
     if valid_deltas.size == 0:
         raise ValueError("No valid delta ≤ T90")
 
@@ -125,7 +127,7 @@ def mvtintegral(
     else:
         file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_{np.round(config_dic['delta'],2)}.npz"
         
-    file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_1.0.npz"
+    #file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_1.0.npz"
     #print(f"File to write: {file_write}")
     file_write_path = os.path.join(trigger_directory, file_write)
 

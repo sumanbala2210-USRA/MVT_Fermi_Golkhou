@@ -157,9 +157,8 @@ def compute_grb_time_bounds(T0, T90, delta, start_padding=False, end_padding=Fal
 
 def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_edges, back_counts, T0, T90, start_padding, end_padding, delt, bw, N, cores, f1=5,f2=3, path = None, tr_fixed=None, all_fig=False):
     tt1, t0, tend = compute_grb_time_bounds(T0, T90, delt, start_padding, end_padding)
-   
     
-    time_interval = T90 + (tend*delt)+(start_padding*delt)+T0
+    time_interval = (tend-T0)+(start_padding*delt)
     
     nn = int(time_interval/delt+1)
     N_iter= int(1/bw)
@@ -167,7 +166,7 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
     n2_array = np.zeros(N_iter, dtype=int)
     n3_array = np.zeros(N_iter, dtype=int)
     n4_array = np.zeros(N_iter, dtype=int)
-    #print(f"tt1 = {tt1}, T0 = {T0}, T90 = {T90}, tend = {tend}, delt = {delt}, bw = {ExponentialFloat(bw)}, nn = {nn}, f1={f1}, f2={f2}")
+    #print(f"tt1 = {tt1}, T0 = {T0}, T90 = {T90}, tend = {tend}, delt = {delt}, bw = {ExponentialFloat(bw)}, nn = {nn}, f1={f1}, f2={f2}, time_interval = {time_interval}, N_iter = {N_iter}")
     #info_trig = f' BN: {trigger_number}, {en}, T90={T90}, bw= {bw}, delt= {delt}, T0= {T0}, ({f1}, {f2})$\sigma$'
     op_tim = np.zeros(nn, dtype=np.float64)
     err_op_tim = np.zeros(nn, dtype=np.float64)
@@ -183,8 +182,8 @@ def evolve_optimum_resolution_diff(trigger_number,en, time_edges, counts, back_e
     #grb_end = np.searchsorted(lc_lo_edges, tt1+delt+padding)
     grb_end = grb_start + int((delt+2*padding)/bw)
     #grb_end1 = grb_start1 + int((delt+2*padding)/bw)
-    #print('max time_edges=', max(time_edges))
-    #print('min time_edges=', min(time_edges))
+    print('max time_edges=', max(time_edges))
+    print('min time_edges=', min(time_edges))
     #print('min counts=', min(counts))
     #print('max counts=', max(counts))
     #print('min back_counts=', min(back_counts))
