@@ -126,6 +126,9 @@ def mvtintegral(
         file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_{max(delta_list)}.npz"
     else:
         file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_{np.round(config_dic['delta'],2)}.npz"
+    
+    if config_dic['file_name'] is not None:
+        file_write = config_dic['file_name']
         
     #file_write = f"all_arrays_{config_dic['trigger_number']}_bw_{config_dic['bw']}_delt_1.0.npz"
     #print(f"File to write: {file_write}")
