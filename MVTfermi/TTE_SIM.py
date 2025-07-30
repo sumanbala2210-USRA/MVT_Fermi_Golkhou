@@ -17,7 +17,7 @@ from astropy.io.fits.verify import VerifyWarning
 # --- GDT Core Imports ---
 from gdt.core.binning.unbinned import bin_by_time
 from gdt.core.plot.lightcurve import Lightcurve
-from gdt.core.simulate.profiles import tophat, constant, norris, quadratic, gaussian, triangular,linear
+from gdt.core.simulate.profiles import tophat, constant, norris, quadratic, linear
 from gdt.core.simulate.tte import TteBackgroundSimulator, TteSourceSimulator
 from gdt.core.simulate.pha import PhaSimulator
 from gdt.core.spectra.functions import DoubleSmoothlyBrokenPowerLaw, Band
