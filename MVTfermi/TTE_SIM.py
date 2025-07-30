@@ -216,7 +216,7 @@ def gen_GBM_pulse(trigger_number,
     phaii_hi = tte_total.to_phaii(bin_by_time, bin_width)
     phaii = phaii_hi.slice_energy(energy_range_nai)
     data = phaii.to_lightcurve()
-    return data.centroids, data.counts, src_max, back_avg, SNR
+    return data.centroids, data.counts, int(np.round(src_max)), int(np.round(back_avg)), int(np.round(SNR))
 
 if __name__ == '__main__':
     gauss_params = (.2, 0.0, 0.2)
