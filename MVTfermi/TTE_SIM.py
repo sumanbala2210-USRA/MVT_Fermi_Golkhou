@@ -193,6 +193,8 @@ def gen_GBM_pulse(trigger_number,
     lcplot.add_selection(lc_bkgd)
     lcplot.selections[1].color = 'pink'
     lcplot.selections[0].color = 'green'
+    lcplot.selections[0].alpha = 1
+    lcplot.selections[1].alpha = 0.5
 
     #x_low = func_par[1] - func_par[1]
     #x_high = func_par[1] + func_par[1]
@@ -204,6 +206,7 @@ def gen_GBM_pulse(trigger_number,
 
     if fig_name is None:
         fig_name = f'lc_{trigger_number}_n{det}_{angle}deg.png'
+
         plt.show()
     plt.title(f'Bn{trigger_number}, n{det}, {angle}deg, back {back_func_par[0]}, Peak {func_par[0]}')
 
