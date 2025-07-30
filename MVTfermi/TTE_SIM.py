@@ -156,17 +156,56 @@ def gen_GBM_pulse(trigger_number,
     #tte_total = GbmTte.merge([tte_src, tte_bkgd])
     tte_total = PhotonList.merge([tte_src, tte_bkgd])
 
-    phaii = tte_total.to_phaii(bin_by_time, 0.001)
-    lcplot = Lightcurve(data=phaii.to_lightcurve(energy_range=energy_range_nai))
+    plot_bw = 0.1
+    phaii = tte_total.to_phaii(bin_by_time, plot_bw)
+
+    
+    phii_src = tte_src.to_phaii(bin_by_time, plot_bw)
+    
+    phii_bkgd = tte_bkgd.to_phaii(bin_by_time, plot_bw)
+    lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
+    lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
+    lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
+
+    plot_bw = 0.1
+    phaii = tte_total.to_phaii(bin_by_time, plot_bw)
+    phii_src = tte_src.to_phaii(bin_by_time, plot_bw)
+    phii_bkgd = tte_bkgd.to_phaii(bin_by_time, plot_bw)
+    lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
+    lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
+    lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
+
+    """
+    lcplot = Lightcurve(data=lc_tot, background=lc_bkgd)
+    _= lcplot.add_selection(lc_src)
+    lcplot.selections[1].color = 'pink'
+    """
+    lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
+
+    src_max = max(lc_src.counts)
+    back_avg = np.mean(lc_bkgd.counts)
+    SNR = src_max / np.sqrt(back_avg)
+
+
+    #lcplot = Lightcurve(data=phaii.to_lightcurve(energy_range=energy_range_nai))
+    lcplot = Lightcurve(data=lc_tot)
+    lcplot.add_selection(lc_src)
+    lcplot.add_selection(lc_bkgd)
+    lcplot.selections[1].color = 'pink'
+    lcplot.selections[0].color = 'green'
+
     #x_low = func_par[1] - func_par[1]
     #x_high = func_par[1] + func_par[1]
     #plt.xlim(x_low, x_high)
     lcplot.errorbars.hide()
 
+
+    ######### SNR Calculation #########
+
     if fig_name is None:
         fig_name = f'lc_{trigger_number}_n{det}_{angle}deg.png'
         plt.show()
-    plt.title(f'Bn{trigger_number} Detector {det} at {angle} degrees')
+    plt.title(f'Bn{trigger_number}, n{det}, {angle}deg, back {back_func_par[0]}, Peak {func_par[0]}')
 
     plt.savefig(fig_name, dpi=300)
         
@@ -174,11 +213,11 @@ def gen_GBM_pulse(trigger_number,
     phaii_hi = tte_total.to_phaii(bin_by_time, bin_width)
     phaii = phaii_hi.slice_energy(energy_range_nai)
     data = phaii.to_lightcurve()
-    return data.centroids, data.counts
+    return data.centroids, data.counts, src_max, back_avg, SNR
 
 if __name__ == '__main__':
-    gauss_params = (.5, 0.0, 0.2)
-    const_par = (10.0,)
+    gauss_params = (.2, 0.0, 0.2)
+    const_par = (2, )
     trigger_info = [
     {'trigger': '250709653', 'det': '6', 'angle': 10.73}, #10
     {'trigger': '250709653', 'det': '3', 'angle': 39.2}, #40

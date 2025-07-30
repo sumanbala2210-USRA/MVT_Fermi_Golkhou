@@ -194,7 +194,7 @@ class GbmSimulationTask(BaseSimulationTask):
             gbm_args = {k: v for k, v in gbm_args.items() if v is not None}
 
             # 4. Call the GBM pulse generation function
-            t_bins, counts = gen_GBM_pulse(
+            t_bins, counts, src_max, back_avg, SNR = gen_GBM_pulse(
                 func=func_to_use,
                 func_par=func_par,
                 back_func=constant,
@@ -210,6 +210,9 @@ class GbmSimulationTask(BaseSimulationTask):
             final_results = self.params.copy()
             final_results['mvt_ms'] = round(float(results[2])*1000, 3)
             final_results['mvt_error_ms'] = round(float(results[3])*1000, 3)
+            final_results['src_max'] = src_max
+            final_results['back_avg'] = back_avg
+            final_results['SNR'] = SNR
 
             for key in keys_to_remove:
                 final_results.pop(key, None)
@@ -324,7 +327,7 @@ def create_plot_template(output_csv_path, output_dir):
 # ========= MAIN EXECUTION BLOCK =========
 def main():
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output_dir = f'SIM_vs_mvt_{now}'
+    output_dir = f'SIM_vs_mvt'#_{now}'
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_path = os.path.join(script_dir, output_dir)
     os.makedirs(output_path, exist_ok=True)

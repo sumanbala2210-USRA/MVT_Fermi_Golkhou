@@ -158,6 +158,93 @@ def plot_mvt_generic(
     #plt.close()
     print(f"\nPlot successfully saved to '{output_filename}'")
 
+
+
+def plot_mvt_advanced(
+    df,
+    x_axis_col,
+    group_by_col,
+    y_axis_col='mvt_ms',
+    y_err_col='mvt_error_ms',
+    filters=None,
+    output_filename=None,
+    show_lower_limits=True,
+    fact=1.0,
+    use_log_x=False,  # New argument for X-axis scale
+    use_log_y=False   # New argument for Y-axis scale
+):
+    """
+    A generalized function to plot MVT against a chosen variable,
+    grouped by another variable, with optional filters.
+    """
+    # --- Apply Filters ---
+    if filters:
+        for key, value in filters.items():
+            if isinstance(value, list):
+                df = df[df[key].isin(value)]
+            else:
+                df = df[df[key] == value]
+
+    if df.empty:
+        print("No data left to plot after applying filters. Exiting.")
+        return
+
+    # --- Generate a descriptive filename if not provided ---
+    if output_filename is None:
+        filter_str = f"_filtered" if filters else ""
+        output_filename = f"plot_{y_axis_col}_vs_{x_axis_col}_by_{group_by_col}{filter_str}.png"
+
+    # --- Plotting ---
+    plt.figure(figsize=(12, 8))
+    sns.set_theme(style="whitegrid", context="talk")
+    grouping_values = sorted(df[group_by_col].unique())
+    colors = sns.color_palette("viridis", n_colors=len(grouping_values))
+    
+    for i, group_val in enumerate(grouping_values):
+        subset = df[df[group_by_col] == group_val].sort_values(x_axis_col)
+        
+        # --- THIS IS THE CORRECTED PART ---
+        # Format the legend label conditionally to handle numbers and strings
+        try:
+            # Try to format as a float with 2 decimal places
+            legend_label = f"{group_by_col.replace('_', ' ').title()} = {group_val:.2f}"
+        except (ValueError, TypeError):
+            # If it fails (because it's a string), use it as is
+            legend_label = f"{group_by_col.replace('_', ' ').title()} = {group_val}"
+        # --- END OF CORRECTION ---
+        
+        with_error = subset[subset[y_err_col] > 0]
+        plt.errorbar(with_error[x_axis_col], with_error[y_axis_col], yerr=with_error[y_err_col],
+                     label=legend_label, fmt='.', capsize=4, color=colors[i])
+        
+        if show_lower_limits:
+            zero_error = subset[subset[y_err_col] == 0]
+            if not zero_error.empty:
+                arrow_length = zero_error[y_axis_col] * 0.15
+                plt.errorbar(zero_error[x_axis_col], zero_error[y_axis_col], yerr=arrow_length,
+                             lolims=True, label='_nolegend_', fmt='o', color=colors[i])
+                
+    line_x = np.linspace(df[x_axis_col].min(), df[x_axis_col].max(), 100)
+    m = 1000
+    y = fact*m*line_x
+
+    if use_log_x:
+        plt.xscale('log')
+    if use_log_y:
+        plt.yscale('log')
+
+    # --- Dynamic Titles and Labels ---
+    plt.title(f"{y_axis_col.replace('_', ' ')} vs. {x_axis_col.replace('_', ' ')}", fontsize=18)
+    plt.xlabel(f"{x_axis_col.replace('_', ' ').title()}", fontsize=14)
+    plt.ylabel(f"{y_axis_col.replace('_', ' ').title()}", fontsize=14)
+    plt.legend(title=group_by_col.replace('_', ' ').title())
+    plt.grid(True, which='both', linestyle='--')
+    plt.tight_layout()
+    plt.show()
+    #plt.savefig(output_filename, dpi=300)
+    #plt.close()
+    print(f"\nPlot successfully saved to '{output_filename}'")
+
 def resolve_column_name(arg, columns):
     """Converts a user argument (name or index) to a valid column name."""
     try:
@@ -173,6 +260,8 @@ def resolve_column_name(arg, columns):
             return arg
         else:
             return None
+        
+
         
 
 def main():
