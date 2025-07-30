@@ -35,6 +35,9 @@ GMAIL_FILE = 'config_mail.yaml'
 
 # ========= UTILITY FUNCTIONS =========
 
+def safe_round(val):
+    return int(np.round(val)) if val is not None and not np.isnan(val) else 0
+
 def send_email(input='!!'):
     msg = EmailMessage()
     msg['Subject'] = 'Python Script Completed'
@@ -210,9 +213,9 @@ class GbmSimulationTask(BaseSimulationTask):
             final_results = self.params.copy()
             final_results['mvt_ms'] = round(float(results[2])*1000, 3)
             final_results['mvt_error_ms'] = round(float(results[3])*1000, 3)
-            final_results['src_max'] = src_max
-            final_results['back_avg'] = back_avg
-            final_results['SNR'] = SNR
+            final_results['src_max'] = safe_round(src_max)
+            final_results['back_avg'] = safe_round(back_avg)
+            final_results['SNR'] = safe_round(SNR)
 
             for key in keys_to_remove:
                 final_results.pop(key, None)
@@ -227,6 +230,9 @@ class GbmSimulationTask(BaseSimulationTask):
             error_results = self.params.copy()
             error_results['mvt_ms'] = -100
             error_results['mvt_error_ms'] = -100
+            error_results['src_max'] = -100
+            error_results['back_avg'] = -100
+            error_results['SNR'] = -100
 
             # Also remove unwanted keys from the error output for consistency
             
