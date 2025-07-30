@@ -1,0 +1,34 @@
+# simulations.yaml
+# Defines the simulation campaigns to be run.
+
+- name: Gaussian_Signal_Scan
+  type: gaussian # We'll use this key to select the right function
+  enabled: true # Allows you to easily enable/disable campaigns
+  parameters:
+    sigma:
+      # Use numpy-like syntax to define ranges
+      start: 0.1
+      stop: 2.1 # Stop is exclusive, like np.arange
+      step: 0.1
+    peak_amplitude:
+      start: 10
+      stop: 110
+      step: 10
+  constants:
+    center_time: 0.0
+    bin_width: 0.0001
+    random_seed: 42
+
+# --- NEW Triangular Simulation Campaign ---
+- name: Triangular_Pulse_Scan
+  type: triangular # <-- This selects the new Triangular logic
+  enabled: true
+  parameters:
+    width: [1.0, 2.0]
+    peak_time_ratio: [0.25, 0.75] # Peak time as a fraction of total width
+  constants:
+    peak_amplitude: 100
+    background_level: 10
+    start_time: 0.0
+    bin_width: 0.0001
+    random_seed: 42

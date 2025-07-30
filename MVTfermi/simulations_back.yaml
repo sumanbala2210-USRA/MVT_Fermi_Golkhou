@@ -1,0 +1,22 @@
+# simulations.yaml
+
+- name: Background_Level_Scan
+  type: gaussian
+  enabled: true
+  parameters:
+    # Set peak_amplitude to a single constant value
+    peak_amplitude: 100
+
+    # Define background_level as a list of explicit values
+    background_level: [1, 2, 3, 4, 5, 10, 11, 12, 13, 15, 20, 25, 30]
+
+    # Sigma can still be a range
+    sigma:
+      start: 0.1
+      stop: 2.1
+      step: 0.1
+
+  constants:
+    center_time: 0.0
+    bin_width: 0.0001
+    random_seed: 42

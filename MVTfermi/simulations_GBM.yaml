@@ -1,0 +1,24 @@
+# --- NEW GBM SIMULATION CAMPAIGN ---
+- name: GBM_Pulse_Scan
+  type: gbm          # Use the new 'gbm' type
+  enabled: true
+  parameters:
+    # Parameters to vary in the simulation
+    # Point to the external file for the trigger/det/angle sets
+    trigger_set_file: 'triggers.csv'
+    peak_amplitude: [1]
+    sigma: [0.2, 1.0] # For Gaussian pulses
+    #width: [0.2]   # For Triangular pulses
+    background_level: [0.1] # Background level constant c0
+  constants:
+    # --- Parameters for gen_GBM_pulse ---
+    t_start: -10.0
+    t_stop: 10.0
+    # --- Parameters for pulse shapes ---
+    pulse_shape: 'gaussian'   # << SET 'gaussian' OR 'triangular' HERE
+    center_time: 0.0           # For Gaussian or Triangular peak time
+    peak_time_ratio: 0.5       # For Triangular
+    # --- Parameters for TTE simulation ---
+    en_lo: 8.0
+    en_hi: 900.0
+    bin_width: 0.0001

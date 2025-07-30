@@ -1,0 +1,12 @@
+trigger_number: '211211549'
+background_intervals: [[-11.67, -1.04], [57.5, 69.58]]
+T90: 34.3046
+det_list: [n3]
+bw: 0.0001
+T0: 0
+en_lo: 10
+en_hi: 1000
+cores: 2
+data_path: '/Users/sbala/work/gdt_dev2/mvt/'
+output_path: '/Users/sbala/work/gdt_dev2/mvt/bn211211549/'
+file_name: bn211211549_bw_0.0001_dets_n1_n2_n3_n4_n5_n6_n7_n8_n9_en_10to1000keV.npz 

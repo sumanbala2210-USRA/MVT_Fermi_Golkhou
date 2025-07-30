@@ -121,17 +121,10 @@ def normalize_background_intervals(raw):
 def base_parser():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--config", type=str, help="Path to YAML config file")
-    parser.add_argument("--delta", type=str)
     parser.add_argument("--limit", type=str)
     parser.add_argument("--bw", type=float)
-    parser.add_argument("--delt", type=float)
     parser.add_argument("--T0", type=float)
     parser.add_argument("--T90", type=float)
-    parser.add_argument("--start_padding", type=float)
-    parser.add_argument("--end_padding", type=float)
-    parser.add_argument("--N", type=int)
-    parser.add_argument("--f1", type=float)
-    parser.add_argument("--f2", type=float)
     parser.add_argument("--cores", type=int)
     parser.add_argument("--output_path", type=str)
     return parser
@@ -150,6 +143,7 @@ def parse_args_fermi(args=None):
     parser.add_argument("--en_lo", type=int)
     parser.add_argument("--en_hi", type=int)
     parser.add_argument("--data_path", type=str)
+    parser.add_argument("--file_name", type=str)
     parsed = vars(parser.parse_args(args=args or []))
 
     # Normalize background_intervals
@@ -169,62 +163,6 @@ def parse_args_fermi(args=None):
 
     return parsed
 
-'''
-def parse_args_fermi(args=None):
-    import sys
-    base = base_parser()
-    parser = argparse.ArgumentParser(description="MVT Fermi CLI", parents=[base])
-    parser.add_argument("--trigger_number", type=str)
-    parser.add_argument(
-        "--background_intervals",
-        type=str,
-        nargs='+',
-        help="Background intervals, e.g. --background_intervals -11.67 -1.04 57.5 69.58 or as a quoted comma-separated string"
-    )
-    parser.add_argument("--det_list", type=str)
-    parser.add_argument("--en_lo", type=int)
-    parser.add_argument("--en_hi", type=int)
-    parser.add_argument("--data_path", type=str)
-
-    # Determine how to parse: 
-    # - If args provided: parse those.
-    # - Else if running in Jupyter: ignore IPython args.
-    # - Else normal parsing.
-    if args is not None:
-        parsed_args = parser.parse_args(args)
-    elif any("ipykernel_launcher" in arg for arg in sys.argv):
-        parsed_args = parser.parse_args([])
-    else:
-        parsed_args = parser.parse_args()
-
-    parsed = vars(parsed_args)
-
-    # Normalize background_intervals
-    if parsed.get("background_intervals") is not None:
-        parsed["background_intervals"] = normalize_background_intervals(parsed["background_intervals"])
-
-    # Normalize det_list (comma-separated string to list)
-    if parsed.get("det_list") and isinstance(parsed["det_list"], str):
-        parsed["det_list"] = [d.strip() for d in parsed["det_list"].split(",")]
-
-    return parsed
-
-
-def parse_args_general(args=None):
-    base = base_parser()
-    parser = argparse.ArgumentParser(description="MVT General CLI", parents=[base])
-    parser.add_argument("--file_path", type=str)
-
-    if args is None:
-        # When running in Jupyter or IPython, avoid using sys.argv directly
-        import sys
-        if any("ipykernel_launcher" in arg for arg in sys.argv):
-            return parser.parse_args([])
-        else:
-            return parser.parse_args()
-    else:
-        return parser.parse_args(args)
-'''
 
 def parse_args_general(args=None):
     base = base_parser()

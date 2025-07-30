@@ -1,0 +1,31 @@
+# --- NEW GBM SIMULATION CAMPAIGN ---
+- name: GBM_Pulse_Scan
+  type: gbm          # Use the new 'gbm' type
+  enabled: true
+  parameters:
+    # Parameters to vary in the simulation
+    # Let's vary amplitude and the pulse width parameter (sigma or width)
+    peak_amplitude: [5, 10, 20]
+    sigma: [0.02, 0.05] # For Gaussian pulses
+    width: [0.2, 0.4]   # For Triangular pulses
+    back_level: [0.1, 0.2] # Background level constant c0
+  constants:
+    # --- Parameters for gen_GBM_pulse ---
+    trigger_number: '250612519' # Example trigger number
+    det: '6'                   # Example detector
+    angle: 0
+    t_start: -2.0
+    t_stop: 2.0
+    # --- Parameters for pulse shapes ---
+    pulse_shape: 'gaussian'   # << SET 'gaussian' OR 'triangular' HERE
+    center_time: 0.0           # For Gaussian
+    start_time: -0.1           # For Triangular
+    peak_time_ratio: 0.3       # For Triangular
+    # --- Parameters for background ---
+    back_func: 'constant'  # Background function type, 'constant' or 'linear'
+    back_c1: 0.0          # The linear coefficient or quadratic c1
+    back_c2: 0.0          # The quadratic coefficient c2
+    # --- Parameters for TTE simulation ---
+    en_lo: 8.0
+    en_hi: 900.0
+    bin_width: 0.0001

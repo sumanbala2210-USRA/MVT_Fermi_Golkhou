@@ -3,11 +3,12 @@ import os
 import sys
 import numpy as np 
 
-from .mvt_analysis import run_mvt_analysis
-from .evolve_opt_res_fermi import compute_grb_time_bounds
-from .trigger_process import trigger_process
+#from .mvt_analysis import run_mvt_analysis
+#from evolve_opt_res_fermi import compute_grb_time_bounds
+#from trigger_process import trigger_process
+from haar_power_mod import haar_power_mod
 
-from .core import (
+from core import (
     str2bool,
     parse_args_fermi,
     load_and_merge_config,
@@ -15,6 +16,34 @@ from .core import (
     normalize_det_list
 )
 
+def compute_grb_time_bounds(T0, T90, delta, start_padding=False, end_padding=False, end_t90=2.0):
+    """
+    Compute the widest time range needed for all delta values, using delt_max.
+    
+    Returns:
+        tuple: (tt1, t0, tend) to be used in trigger_process.
+    """
+
+    if start_padding:
+        tt1 = T0 - min((start_padding+1)*delta,20)
+    else:
+        tt1 = T0 - 20
+
+    t0  = tt1+ 5*delta
+
+    if end_padding:
+        tend = max(
+            T0 + T90 * end_t90,
+            T0 + T90 + (end_padding+1) * delta
+        )
+    else:
+        tend = max(
+            T0 + T90 * end_t90,
+            T0 + T90 + 10*delta
+        )
+
+    #print(f"tt1 = {tt1}, t0 = {t0}, tend = {tend} delta = {delta}")
+    return tt1, t0, tend
 '''
 def mvtfermi(
     delta=None, limit=None, trigger_number=None, bw=None, T0=None,
@@ -137,10 +166,10 @@ def mvtfermi(
         data = np.load(file_write_path)
         time_edges = data["full_grb_time_lo_edge"]
         counts = data["full_grb_counts"]
-        back_counts = data["full_back_counts"]
+        #back_counts = data["full_back_counts"]
     else:
         
-        time_edges, counts, back_counts = trigger_process(
+        time_edges, counts = trigger_process(
             file_write,
             trigger_directory,
             config_dic['trigger_number'],
@@ -154,7 +183,7 @@ def mvtfermi(
             nai_dets,
             t0
         )
-
+    counts[counts < 0] = 0
     temp_bw = np.round(time_edges[1] - time_edges[0],6)  # Assuming uniform bin width
     if not np.allclose(config_dic['bw'], temp_bw, rtol=1e-9, atol=1e-12):
         print("\n!!!!!!  WARNING: Input bin width does not match Data bin width. !!!!!!!")
@@ -169,28 +198,10 @@ def mvtfermi(
         print(f"{k}: {v}")
     #exit()
 
-    return run_mvt_analysis(
-        config_dic['trigger_number'],
-        time_edges,
-        counts,
-        back_counts,
-        config_dic['T0'],
-        T90,
-        tt1,
-        config_dic['bw'],
-        valid_deltas,
-        config_dic['start_padding'],
-        config_dic['end_padding'],
-        config_dic['N'],
-        config_dic['cores'],
-        config_dic['f1'],
-        config_dic['f2'],
-        en,
-        output_folder=config_dic['output_path'],
-        all_delta=config_dic['all_delta'],
-        delta=config_dic['delta'],
-        limit=config_dic['limit']
-    )
+    return  haar_power_mod(
+    counts, np.sqrt(counts), min_dt=config_dic['bw'], max_dt=100., tau_bg_max=0.01, nrepl=2,
+    doplot=True, bin_fac=4, zerocheck=False, afactor=-1., snr=3.,
+    verbose=True, weight=True, file=config_dic['trigger_number'])
 
 
 def mvtfermi_cli():
