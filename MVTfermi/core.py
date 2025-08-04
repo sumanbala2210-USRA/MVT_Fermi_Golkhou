@@ -1,3 +1,9 @@
+"""
+Core functions and utilities for MVT Fermi simulations.
+This module provides functions to check CLI arguments, merge configurations,
+and normalize input data.
+"""
+
 import sys
 import os
 import yaml

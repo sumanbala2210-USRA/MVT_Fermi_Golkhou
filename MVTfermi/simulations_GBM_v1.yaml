@@ -1,0 +1,55 @@
+# simulations_GBM.yaml
+
+- name: GBM_Pulse_Simulation
+  type: gbm # Still needed to select the GbmSimulationTask class
+
+  # Base parameters that vary for ALL enabled pulse shapes below
+  parameters:
+    trigger_set_file: 'triggers.csv'
+
+  # Base constants that apply to ALL enabled pulse shapes
+  constants:
+    t_start: -10.0
+    t_stop: 10.0
+    background_level: 1
+    en_lo: 8.0
+    en_hi: 900.0
+    bin_width: 0.0001
+
+    # --- Dictionary of function-specific configurations ---
+    pulse_configs:
+      gaussian:
+        enabled: true # <-- SET TO true TO RUN THIS FUNCTION
+        parameters:
+          peak_amplitude: [0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+          sigma: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+        constants:
+          center_time: 0.0
+
+      triangular:
+        enabled: false # <-- SET TO true TO RUN THIS FUNCTION
+        parameters:
+          peak_amplitude: [0.01, 0.1, 1.0, 10.0]
+          width: [0.001, 0.005, 0.01, 0.1, 1.0]
+        constants:
+          center_time: 0.0
+          peak_time_ratio: 0.5
+
+      norris:
+        enabled: false # <-- SET TO false TO SKIP THIS FUNCTION
+        parameters:
+          peak_amplitude: [0.01, 0.05, 0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+          rise_time: [0.001, 0.005, 0.01, 0.1, 1.0]
+          decay_time: [0.5, 1.0]
+        constants:
+          start_time: 0.0
+
+      fred:
+        enabled: false # <-- SET TO false TO SKIP THIS FUNCTION
+        parameters:
+          peak_amplitude: [0.01, 0.1, 1.0, 10.0]
+          rise_time: [0.001, 0.005, 0.01, 0.1, 1.0]
+          decay_time: [0.5, 1.0]
+        constants:
+          start_time: 0.0
+          

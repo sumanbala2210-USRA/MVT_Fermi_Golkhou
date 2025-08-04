@@ -9,6 +9,7 @@ import glob
 import matplotlib.pyplot as plt
 import numpy as np
 import concurrent.futures
+import scipy.integrate as spi
 import gdt.core
 import yaml  # Import the JSON library for parameter logging
 import warnings
@@ -17,7 +18,7 @@ from astropy.io.fits.verify import VerifyWarning
 # --- GDT Core Imports ---
 from gdt.core.binning.unbinned import bin_by_time
 from gdt.core.plot.lightcurve import Lightcurve
-from gdt.core.simulate.profiles import tophat, constant, norris, quadratic, linear
+from gdt.core.simulate.profiles import tophat, constant, norris, quadratic, linear, gaussian
 from gdt.core.simulate.tte import TteBackgroundSimulator, TteSourceSimulator
 from gdt.core.simulate.pha import PhaSimulator
 from gdt.core.spectra.functions import DoubleSmoothlyBrokenPowerLaw, Band
@@ -31,62 +32,333 @@ from gdt.core.plot.lightcurve import Lightcurve
 from gdt.core.plot.model import ModelFit
 from gdt.core.tte import PhotonList
 from gdt.core.plot.spectrum import Spectrum
+from haar_power_mod import haar_power_mod
+from sim_functions import constant2, gaussian2, triangular, fred
 # Suppress a common FITS warning
-warnings.simplefilter('ignore', VerifyWarning)
+import concurrent.futures
 
-def gaussian2(x, amp, center, sigma):
-    r"""A Gaussian (normal) profile.
-    
-    The functional form is:
-    
-    :math:`f(x) = A e^{-\frac{(x - \mu)^2}{2\sigma^2}}`
-    
-    where:
-    
-    * :math:`A` is the pulse amplitude
-    * :math:`\mu` is the center of the peak
-    * :math:`\sigma` is the standard deviation (width)
-    
+#warnings.simplefilter('ignore', VerifyWarning)
+
+MAX_WORKERS = os.cpu_count() - 2
+const_par = (1, )
+fred_par = (0.5, 0.0, 0.05, 0.1)
+gauss_params = (.5, 0.0, 0.1)
+
+
+
+
+def generate_tte_events(
+    t_start=-10.0,
+    t_stop=10.0,
+    func=None,
+    func_kwargs={},
+    back_func=constant,
+    back_kwargs={'cps': 100}
+):
+    """Generates an unbinned list of TTE event arrival times.
+
     Args:
-        x (np.array): Array of times.
-        amp (float): The amplitude of the pulse, A.
-        center (float): The center time of the pulse, :math:`\mu`.
-        sigma (float): The standard deviation of the pulse, :math:`\sigma`.
-    
+        t_start (float): The start time of the observation window.
+        t_stop (float): The end time of the observation window.
+        func (function): The source pulse rate shape (in cps).
+        func_kwargs (dict): Keyword arguments for the source function.
+        back_func (function): The background rate shape (in cps).
+        back_kwargs (dict): Keyword arguments for the background function.
+
     Returns:
-        (np.array)
+        np.array: A sorted array of event arrival times (TTE data).
     """
+    # Define the total rate function (source + background)
+    def total_rate_func(t):
+        source_rate = func(t, **func_kwargs) if func else 0
+        background_rate = back_func(t, **back_kwargs)
+        return source_rate + background_rate
+
+    # 1. Calculate the total expected number of events by integrating the rate
+    total_expected_counts, _ = spi.quad(total_rate_func, t_start, t_stop)
+
+    # 2. Draw the actual number of events from a Poisson distribution
+    num_events = np.random.poisson(total_expected_counts)
+
+    # 3. Distribute events in time using the inverse transform sampling method
+    # This is a standard and efficient way to generate events for a given rate model.
+    events = []
+    while len(events) < num_events:
+        # Propose a random time and test against the peak rate
+        # This "acceptance-rejection" method is robust for complex shapes.
+        # We need a reasonable estimate of the peak rate for efficiency.
+        peak_rate_estimate = total_rate_func(func_kwargs.get('center', (t_start+t_stop)/2)) * 1.2
+        
+        # Generate a batch of candidate events for efficiency
+        batch_size = int(num_events - len(events))
+        candidate_times = np.random.uniform(t_start, t_stop, size=batch_size)
+        candidate_rates = np.random.uniform(0, peak_rate_estimate, size=batch_size)
+        
+        # Accept candidates that fall under the true rate curve
+        actual_rates = total_rate_func(candidate_times)
+        accepted_mask = candidate_rates < actual_rates
+        events.extend(candidate_times[accepted_mask])
+
+    # Ensure we have exactly the right number of events and sort them
+    final_events = np.sort(np.array(events[:num_events]))
+
+    return final_events
+
+
+# You would still have your pulse and background functions (gaussian, constant, etc.) here.
+
+def generate_tte_events_faster(
+    t_start=-10.0,
+    t_stop=10.0,
+    func=None,
+    func_kwargs={},
+    back_func=constant,
+    back_kwargs={'cps': 100},
+    grid_resolution=0.0001
+):
+    """
+    Generates TTE event times using the faster integral inversion method.
+
+    Args:
+        t_start (float): Start time of the observation window.
+        t_stop (float): End time of the observation window.
+        func (function): Source pulse rate shape (in cps).
+        func_kwargs (dict): Keyword arguments for the source function.
+        back_func (function): Background rate shape (in cps).
+        back_kwargs (dict): Keyword arguments for the background function.
+        grid_resolution (float): The time resolution for the internal integration grid.
+
+    Returns:
+        np.array: A sorted array of event arrival times.
+    """
+    # 1. Create a fine time grid for numerical integration
+    # For high-intensity pulses, this grid can be coarser than the bin width.
+    grid_times = np.arange(t_start, t_stop, grid_resolution)
+    
+    # 2. Define and calculate the rate on the grid
+    def total_rate_func(t):
+        source_rate = func(t, **func_kwargs) if func else 0
+        background_rate = back_func(t, **back_kwargs)
+        return source_rate + background_rate
+
+    rate_on_grid = total_rate_func(grid_times)
+
+    # 3. Create the cumulative event count curve (integrated rate)
+    cumulative_counts = spi.cumulative_trapezoid(rate_on_grid, grid_times, initial=0)
+    total_expected_counts = cumulative_counts[-1]
+
+    # 4. Determine the total number of events to simulate
+    num_events = np.random.poisson(total_expected_counts)
+
+    # 5. Generate random uniform values along the y-axis (counts)
+    random_counts = np.random.uniform(0, total_expected_counts, num_events)
+
+    # 6. Invert the cumulative function using fast interpolation
+    # This maps the random counts back to the time axis.
+    event_times = np.interp(random_counts, cumulative_counts, grid_times)
+
+    # Return the sorted list of event times
+    return np.sort(event_times)
+
+
+def bin_events_to_lightcurve(
+    event_times,
+    t_start=-10.0,
+    t_stop=10.0,
+    bin_width=0.1
+):
+    """Bins a list of TTE events into a light curve.
+
+    Args:
+        event_times (np.array): A sorted array of event arrival times.
+        t_start (float): The start time for binning.
+        t_stop (float): The end time for binning.
+        bin_width (float): The desired time resolution of the light curve.
+
+    Returns:
+        tuple: A tuple containing:
+            - times (np.array): The center of the time bins.
+            - counts (np.array): The number of counts in each bin.
+    """
+    # Define the time bins
+    bins = np.arange(t_start, t_stop + bin_width, bin_width)
+    
+    # Use numpy.histogram to efficiently count events in each bin
+    counts, _ = np.histogram(event_times, bins=bins)
+    
+    # Calculate the center of each time bin for plotting
+    times = bins[:-1] + bin_width / 2.0
+    
+    return times, counts
+
+
+def gen_pulse_old(
+    t_start=-10.0,
+    t_stop=10.0,
+    func=None,
+    func_par=(),
+    back_func=constant,
+    back_func_par=(100,),
+    bin_width=0.0001,
+    fig_name=None,
+    simulation=True
+):
+    """
+    Generates a pulse profile using physical rates (counts per second).
+
+    Args:
+        t_start (float): The start time of the observation window.
+        t_stop (float): The end time of the observation window.
+        func (function): The function for the source pulse rate shape (in cps).
+        func_par (tuple): A tuple of parameters for the source function.
+                          e.g., (amp_cps, center, sigma)
+        back_func (function): The function for the background rate (in cps).
+        back_func_par (tuple): A tuple of parameters for the background function.
+        bin_width (float): The width of each time bin in seconds.
+        fig_name (str, optional): If provided, saves a plot to this filename.
+        simulation (bool): If True, performs a Poisson simulation for counts.
+
+    Returns:
+        tuple: (times, counts, src_max_cps, back_avg_cps, SNR)
+    """
+    # 1. Create time bins and their centers
+    time_bins = np.arange(t_start, t_stop, bin_width)
+    times = time_bins + bin_width / 2.0
+
+    # 2. Calculate source and background rates in counts per second (cps)
+    background_rate_cps = back_func(times, *back_func_par)
+    source_rate_cps = np.zeros_like(times)
+    if func is not None:
+        source_rate_cps = func(times, *func_par)
+
+    # 3. Convert rates (cps) to expected counts per bin
+    total_expected_counts = (source_rate_cps + background_rate_cps) * bin_width
+
+    # 4. Calculate metrics from the cps rates
+    back_avg_cps = np.mean(background_rate_cps)
+    src_max_cps = np.max(source_rate_cps)
+    snr = src_max_cps / np.sqrt(back_avg_cps) if back_avg_cps > 0 else np.inf
+
+    # 5. Create the final light curve
+    if simulation:
+        counts = np.random.poisson(total_expected_counts)
+    else:
+        counts = total_expected_counts
+
+    # 6. Optional plotting
+    if fig_name is not None:
+        plt.figure(figsize=(12, 7))
+        plt.step(times, counts / bin_width, where='mid', label='Simulated Rate (cps)')
+        plt.plot(times, source_rate_cps + background_rate_cps, 'r--',
+                 alpha=0.8, label='Ideal Rate (cps)')
+        plt.xlabel("Time (s)")
+        plt.ylabel("Rate (counts/sec)")
+        plt.title(f"Simulated Pulse Profile (SNR ≈ {int(np.round(snr))})")
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.savefig(fig_name)
+        #plt.show()
+        plt.close()
+        print(f"✅ Plot saved to {fig_name}")
+
+    return times, counts, int(np.round(src_max_cps)), int(np.round(back_avg_cps)), int(np.round(snr))
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+def gen_pulse(
+    t_start=-10.0,
+    t_stop=10.0,
+    func=None,
+    func_par=(),
+    back_func=None,
+    back_func_par=(),
+    bin_width=0.0001,
+    source_base_rate=1000.0,   # NEW: Base rate for the source pulse
+    background_base_rate=1000.0, # NEW: Base rate for the background
+    fig_name=None,
+    simulation=True
+):
+    """
+    Generates a pulse profile where amplitude parameters are scalers.
+
+    Args:
+        t_start (float): The start time of the observation window.
+        t_stop (float): The end time of the observation window.
+        func (function): The function for the source pulse shape.
+        func_par (tuple): Parameters for the source function, e.g.,
+                          (amp_scaler, center, sigma). amp_scaler=1 gives a
+                          peak rate of source_base_rate.
+        back_func (function): The function for the background shape.
+        back_func_par (tuple): Parameters for the background function, e.g.,
+                               (amp_scaler,). amp_scaler=1 gives a
+                               background rate of background_base_rate.
+        bin_width (float): The width of each time bin in seconds.
+        source_base_rate (float): The rate in cps for a source amp_scaler of 1.
+        background_base_rate (float): The rate in cps for a background amp_scaler of 1.
+        fig_name (str, optional): If provided, saves a plot to this filename.
+        simulation (bool): If True, performs a Poisson simulation for counts.
+
+    Returns:
+        tuple: (times, counts, src_max_cps, back_avg_cps, SNR)
+    """
+    # 1. Create time bins and their centers
+    time_bins = np.arange(t_start, t_stop, bin_width)
+    times = time_bins + bin_width / 2.0
+
+    # 2. Calculate the unitless shape of the source and background
+    background_shape = np.zeros_like(times)
+    if back_func is not None:
+        background_shape = back_func(times, *back_func_par)
+
+    source_shape = np.zeros_like(times)
+    if func is not None:
+        source_shape = func(times, *func_par)
+
+    # 3. Scale the shapes by the base rates to get rates in cps
+    background_rate_cps = background_shape * background_base_rate
+    source_rate_cps = source_shape * source_base_rate
+    
+    # 4. Convert rates (cps) to expected counts per bin
+    total_expected_counts = (source_rate_cps + background_rate_cps) * bin_width
+
+    # 5. Calculate metrics from the cps rates
+    back_avg_cps = np.mean(background_rate_cps)
+    src_max_cps = np.max(source_rate_cps)
+    snr = src_max_cps / np.sqrt(back_avg_cps) if back_avg_cps > 0 else np.inf
+
+    # 6. Create the final light curve
+    if simulation:
+        counts = np.random.poisson(total_expected_counts)
+    else:
+        counts = total_expected_counts
+
+    # 7. Optional plotting
+    if fig_name is not None:
+        plt.figure(figsize=(12, 7))
+        plt.step(times, counts / bin_width, where='mid', label='Simulated Rate (cps)')
+        plt.plot(times, source_rate_cps + background_rate_cps, 'r--',
+                 alpha=0.8, label='Ideal Rate (cps)')
+        plt.xlabel("Time (s)")
+        plt.ylabel("Rate (counts/sec)")
+        plt.title(f"Simulated Pulse Profile (SNR ≈ {int(np.round(snr))})")
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.5)
+        plt.savefig(fig_name)
+        plt.close()
+        print(f"✅ Plot saved to {fig_name}")
+
+    return times, counts, int(np.round(src_max_cps)), int(np.round(back_avg_cps)), int(np.round(snr))
+
+# Helper functions (no changes needed for these)
+def constant(x, amp):
+    fxn = np.empty(x.size)
+    fxn.fill(amp)
+    return fxn
+
+def gaussian(x, amp, center, sigma):
     return amp * np.exp(-((x - center)**2) / (2 * sigma**2))
 
-def triangular(x, amp, tstart, tpeak, tstop):
-    r"""A triangular pulse function.
-    
-    The functional form is a piecewise linear function:
-    
-    :math:`f(x) = \begin{cases} 
-    A \frac{x - t_{start}}{t_{peak} - t_{start}} & t_{start} \le x < t_{peak} \\ 
-    A \frac{t_{stop} - x}{t_{stop} - t_{peak}} & t_{peak} \le x \le t_{stop} \\ 
-    0 & \text{otherwise} 
-    \end{cases}`
-    
-    where:
-    
-    * :math:`A` is the pulse amplitude
-    * :math:`t_{start}` is the start time of the pulse
-    * :math:`t_{peak}` is the time of the peak amplitude
-    * :math:`t_{stop}` is the end time of the pulse
-    
-    Args:
-        x (np.array): Array of times.
-        amp (float): The amplitude of the peak, A.
-        tstart (float): The start time of the pulse.
-        tpeak (float): The time of the peak.
-        tstop (float): The end time of the pulse.
-        
-    Returns:
-        (np.array)
-    """
-    return np.interp(x, [tstart, tpeak, tstop], [0, amp, 0])
 
 def gen_GBM_pulse(trigger_number,
                   det,
@@ -101,7 +373,8 @@ def gen_GBM_pulse(trigger_number,
                   en_lo=8.0,
                   en_hi=900.0,
                   bin_width = 0.0001,
-                  fig_name=None):
+                  fig_name=None,
+                  simulation=False):
     energy_range_nai = (en_lo, en_hi)
     band_params = (0.1, 300.0, -1.0, -2.5)
     #tte = GbmTte.open('glg_tte_n6_bn250612519_v00.fit')
@@ -143,74 +416,82 @@ def gen_GBM_pulse(trigger_number,
 
     
     # source simulation
-    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par)
+    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, deadtime=1e-6)
+    
     tte_src = tte_sim.to_tte(t_start, t_stop)
     
     # background simulation
     #tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', quadratic, quadratic_params)
-    tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par)
+    tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, deadtime=1e-6)
     tte_bkgd = tte_sim.to_tte(t_start, t_stop)
     
     # merge the background and source
     #tte_total = GbmTte.merge([tte_bkgd, tte_src])
     #tte_total = GbmTte.merge([tte_src, tte_bkgd])
     tte_total = PhotonList.merge([tte_src, tte_bkgd])
+    src_max = 1
+    back_avg = 1
+    SNR = 1
 
-    plot_bw = 0.1
-    phaii = tte_total.to_phaii(bin_by_time, plot_bw)
+    if not simulation:
+        try:
+            plot_bw = 0.1
+            phaii = tte_total.to_phaii(bin_by_time, plot_bw)
+            
+            phaii = tte_total.to_phaii(bin_by_time, plot_bw)
+            phii_src = tte_src.to_phaii(bin_by_time, plot_bw)
+            phii_bkgd = tte_bkgd.to_phaii(bin_by_time, plot_bw)
+            lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
+            lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
+            lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
 
-    
-    phii_src = tte_src.to_phaii(bin_by_time, plot_bw)
-    
-    phii_bkgd = tte_bkgd.to_phaii(bin_by_time, plot_bw)
-    lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
-    lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
-    lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
+            """
+            lcplot = Lightcurve(data=lc_tot, background=lc_bkgd)
+            _= lcplot.add_selection(lc_src)
+            lcplot.selections[1].color = 'pink'
+            """
 
-    plot_bw = 0.1
-    phaii = tte_total.to_phaii(bin_by_time, plot_bw)
-    phii_src = tte_src.to_phaii(bin_by_time, plot_bw)
-    phii_bkgd = tte_bkgd.to_phaii(bin_by_time, plot_bw)
-    lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
-    lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
-    lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
-
-    """
-    lcplot = Lightcurve(data=lc_tot, background=lc_bkgd)
-    _= lcplot.add_selection(lc_src)
-    lcplot.selections[1].color = 'pink'
-    """
-    lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
-
-    src_max = max(lc_src.counts)
-    back_avg = np.mean(lc_bkgd.counts)
-    SNR = src_max / np.sqrt(back_avg)
+            src_max = max(lc_src.counts)
+            back_avg = np.mean(lc_bkgd.counts)
+            SNR = src_max / np.sqrt(back_avg)
 
 
-    #lcplot = Lightcurve(data=phaii.to_lightcurve(energy_range=energy_range_nai))
-    lcplot = Lightcurve(data=lc_tot)
-    lcplot.add_selection(lc_src)
-    lcplot.add_selection(lc_bkgd)
-    lcplot.selections[1].color = 'pink'
-    lcplot.selections[0].color = 'green'
-    lcplot.selections[0].alpha = 1
-    lcplot.selections[1].alpha = 0.5
+            #lcplot = Lightcurve(data=phaii.to_lightcurve(energy_range=energy_range_nai))
+            lcplot = Lightcurve(data=lc_tot)
+            lcplot.add_selection(lc_src)
+            lcplot.add_selection(lc_bkgd)
+            lcplot.selections[1].color = 'pink'
+            lcplot.selections[0].color = 'green'
+            lcplot.selections[0].alpha = 1
+            lcplot.selections[1].alpha = 0.5
 
-    #x_low = func_par[1] - func_par[1]
-    #x_high = func_par[1] + func_par[1]
-    #plt.xlim(x_low, x_high)
-    lcplot.errorbars.hide()
+            #x_low = func_par[1] - func_par[1]
+            #x_high = func_par[1] + func_par[1]
+            #plt.xlim(x_low, x_high)
+            lcplot.errorbars.hide()
 
 
-    ######### SNR Calculation #########
+            ######### SNR Calculation #########
 
-    if fig_name is None:
-        fig_name = f'lc_{trigger_number}_n{det}_{angle}deg.png'
+            if fig_name is None:
+                fig_name = f'lc_{trigger_number}_n{det}_{angle}deg.png'
 
-        plt.show()
-    plt.title(f'Bn{trigger_number}, n{det}, {angle}deg, back {back_func_par[0]}, Peak {func_par[0]}')
+                #plt.show()
+            
+            for i in range(len(func_par)):
+                if i == 0:
+                    func_txt = f"amp: {func_par[i]:.2f},"
+                elif i == 2:
+                    func_txt += f" rise/sig/tp: {func_par[i]:.2f},"
+                elif i == 3:
+                    func_txt += f" decay/stop: {func_par[i]:.2f}"
+            plt.title(f'Bn{trigger_number}, n{det}, {angle}deg, back {back_func_par[0]},\n {func_txt}', fontsize=10)
 
-    plt.savefig(fig_name, dpi=300)
+            plt.savefig(fig_name, dpi=300)
+            plt.close()
+        except Exception as e:
+            print(f"Error during plotting: {e}")
+            lcplot = None
         
 
     phaii_hi = tte_total.to_phaii(bin_by_time, bin_width)
@@ -219,8 +500,10 @@ def gen_GBM_pulse(trigger_number,
     return data.centroids, data.counts, int(np.round(src_max)), int(np.round(back_avg)), int(np.round(SNR))
 
 if __name__ == '__main__':
-    gauss_params = (.2, 0.0, 0.2)
-    const_par = (2, )
+    gauss_params = (5, 0.0, 0.2)
+    tri_par = (0.01, -1., 0.0, 1.)
+    const_par = (1, )
+    fred_par = (0.5, 0.0, 0.05, 0.1)  # amp, tstart, trise, tdecay
     trigger_info = [
     {'trigger': '250709653', 'det': '6', 'angle': 10.73}, #10
     {'trigger': '250709653', 'det': '3', 'angle': 39.2}, #40
@@ -242,4 +525,19 @@ if __name__ == '__main__':
         print(f"Processing trigger {trigger['trigger']} with detector {trigger['det']}")
         gen_GBM_pulse(trigger['trigger'], trigger['det'], trigger['angle'], -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par)
     """
-    gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par)
+    #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par)
+    #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=triangular, func_par=tri_par, back_func=constant, back_func_par=const_par)
+    #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=fred, func_par=tri_par, back_func=constant, back_func_par=const_par)
+    results = gen_pulse(
+        t_start=-10.0,
+        t_stop=10.0,
+        func=gaussian,
+        func_par=gauss_params,
+        back_func=constant,
+        back_func_par=const_par,
+        bin_width=0.0001,
+        fig_name='test_gaussian.png',
+        simulation=False
+    )
+
+    print(f"Generated pulse with times: {results[0]}, counts: {results[1]},source max cps: {results[2]}, background avg cps: {results[3]}, SNR: {results[4]}")

@@ -13,7 +13,7 @@ warnings.filterwarnings('ignore', r'divide by zero encountered')
 warnings.filterwarnings('ignore', r'invalid value encountered')
 
 
-def haar_power_mod(rate,drate,min_dt=1.e-4,max_dt=100.,tau_bg_max=0.01,nrepl=2,doplot=True,bin_fac=4,zerocheck=False,afactor=1.,snr=3.,verbose=True,weight=True,file='test'):
+def haar_power_mod(rate,drate,min_dt=1.e-4,max_dt=100.,tau_bg_max=0.01,nrepl=2,doplot=True,bin_fac=4,zerocheck=False,afactor=-1.,snr=3.,verbose=True,weight=True,file='test'):
     """
       set afactor to negative to have the code estimate it
       largest timescale used will be tau_bg_max
