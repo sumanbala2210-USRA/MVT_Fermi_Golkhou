@@ -8,21 +8,6 @@ Old: This script simulates light curves using Gaussian and triangular profiles.
 import numpy as np
 
 
-def generate_gaussian_light_curve(center_time, sigma, peak_amplitude, bin_width,
-                                  background_level, pre_post_background_time=2.0, random_seed=None):
-    """Generates a Gaussian light curve with Poisson noise."""
-    rng = np.random.default_rng(seed=random_seed)
-    full_start = center_time - pre_post_background_time - 4 * sigma
-    full_end = center_time + pre_post_background_time + 4 * sigma
-    bin_edges = np.arange(full_start, full_end + bin_width, bin_width)
-    time_bins = (bin_edges[:-1] + bin_edges[1:]) / 2
-
-    gaussian_signal = peak_amplitude * np.exp(-0.5 * ((time_bins - center_time) / sigma) ** 2)
-    noisy_signal = rng.poisson(gaussian_signal)
-    noisy_background = rng.poisson(background_level, size=time_bins.size)
-    observed_counts = noisy_signal + noisy_background
-
-    return time_bins, observed_counts, noisy_signal, noisy_background
 
 
 def generate_triangular_light_curve_with_fixed_peak_amplitude(
@@ -32,7 +17,7 @@ def generate_triangular_light_curve_with_fixed_peak_amplitude(
     peak_amplitude,    # new parameter
     peak_time_ratio,
     bin_width,
-    background_level,
+    background_level, back_factor =1.0,
     pre_post_background_time=2.0,
     random_seed=None
 ):
@@ -70,7 +55,7 @@ def generate_triangular_light_curve_with_fixed_peak_amplitude(
     background_noisy_counts = rng.poisson(background_level, size=time_bins.size)
 
     # Observed counts = triangle (noiseless) + noisy background
-    observed_counts = triangle_counts + background_noisy_counts
+    observed_counts = triangle_counts + background_noisy_counts - background_level * back_factor
 
     # Round to nearest integer (counts must be integers)
     observed_counts = np.round(observed_counts).astype(int)
@@ -79,7 +64,7 @@ def generate_triangular_light_curve_with_fixed_peak_amplitude(
 
 # Your original Gaussian function for reference
 def generate_gaussian_light_curve(center_time, sigma, peak_amplitude, bin_width,
-                                  background_level, pre_post_background_time=2.0, random_seed=None):
+                                  background_level, back_factor =1.0, pre_post_background_time=2.0, random_seed=None):
     """
     Generates a Gaussian light curve with Poisson noise.
     
@@ -96,14 +81,15 @@ def generate_gaussian_light_curve(center_time, sigma, peak_amplitude, bin_width,
     ideal_signal = peak_amplitude * np.exp(-0.5 * ((time_bins - center_time) / sigma) ** 2)
     
     # The total expected rate is the sum of the signal and the background
-    total_expected_rate = ideal_signal + background_level
+    total_expected_rate = ideal_signal + background_level 
     
     # The observed counts are a Poisson realization of the total expected rate
-    observed_counts = rng.poisson(total_expected_rate)
+    observed_counts = rng.poisson(total_expected_rate) - background_level * back_factor
     
     # For comparison, we can also return the ideal background component
-    ideal_background = np.full_like(time_bins, background_level)
-
+    ideal_background = np.full_like(time_bins, background_level) - background_level * back_factor
+    observed_counts[observed_counts <= 0] = 0.0
+    ideal_background[ideal_background < 0] = 0.0
     return time_bins, observed_counts, ideal_signal, ideal_background
 
 # A slightly revised and more robust version of your Triangle function
@@ -113,7 +99,7 @@ def generate_triangular_light_curve(
     peak_time_ratio,
     peak_amplitude,
     bin_width,
-    background_level,
+    background_level, back_factor =1.0,
     pre_post_background_time=2.0,
     random_seed=None
 ):
@@ -165,14 +151,15 @@ def generate_triangular_light_curve(
         ideal_signal[in_fall] = (end_time - time_bins[in_fall]) * fall_slope
 
     # The total expected rate is the sum of the signal and the background
-    total_expected_rate = ideal_signal + background_level
+    total_expected_rate = ideal_signal + background_level 
     
     # The observed counts are a Poisson realization of the total expected rate
-    observed_counts = rng.poisson(total_expected_rate)
-    
+    observed_counts = rng.poisson(total_expected_rate) - background_level * back_factor
+   
     # Ideal background component for plotting/comparison
-    ideal_background = np.full_like(time_bins, background_level)
-
+    ideal_background = np.full_like(time_bins, background_level) - background_level * back_factor
+    observed_counts[observed_counts <= 0] = 0.0
+    ideal_background[ideal_background < 0] = 0.0
     return time_bins, observed_counts, ideal_signal, ideal_background
 
 # --- NEW FUNCTIONS ---
@@ -184,7 +171,7 @@ def generate_norris_light_curve(
     decay_time,
     pulse_shape_nu,
     bin_width,
-    background_level,
+    background_level, back_factor =1.0,
     pre_post_background_time=2.0,
     random_seed=None
 ):
@@ -226,13 +213,15 @@ def generate_norris_light_curve(
 
     # The total expected rate is the sum of the signal and the background
     total_expected_rate = ideal_signal + background_level
-    
+
     # The observed counts are a Poisson realization of the total expected rate
-    observed_counts = rng.poisson(total_expected_rate)
-    
+    observed_counts = rng.poisson(total_expected_rate) - background_level * back_factor
+
     # Ideal background component for plotting/comparison
     ideal_background = np.full_like(time_bins, background_level)
-    
+    observed_counts[observed_counts <= 0] = 0.0
+    ideal_background[ideal_background < 0] = 0.0
+
     return time_bins, observed_counts, ideal_signal, ideal_background
 
 
@@ -242,7 +231,7 @@ def generate_fred_light_curve(
     rise_time,
     decay_time,
     bin_width,
-    background_level,
+    background_level, back_factor =1.0,
     pre_post_background_time=2.0,
     random_seed=None
 ):
@@ -259,7 +248,7 @@ def generate_fred_light_curve(
         decay_time=decay_time,
         pulse_shape_nu=1.0,  # FRED is defined by nu=1
         bin_width=bin_width,
-        background_level=background_level,
+        background_level=background_level, back_factor=back_factor,
         pre_post_background_time=pre_post_background_time,
         random_seed=random_seed
     )
@@ -270,7 +259,7 @@ def generate_lognormal_light_curve(
     sigma,
     tau,
     bin_width,
-    background_level,
+    background_level, back_factor =1.0,
     pre_post_background_time=2.0,
     random_seed=None
 ):
@@ -305,12 +294,14 @@ def generate_lognormal_light_curve(
 
     # The total expected rate is the sum of the signal and the background
     total_expected_rate = ideal_signal + background_level
-    
+
     # The observed counts are a Poisson realization of the total expected rate
-    observed_counts = rng.poisson(total_expected_rate)
-    
+    observed_counts = rng.poisson(total_expected_rate) - background_level * back_factor
+
     # Ideal background component for plotting/comparison
-    ideal_background = np.full_like(time_bins, background_level)
+    ideal_background = np.full_like(time_bins, background_level) - background_level * back_factor
+    observed_counts[observed_counts <= 0] = 0.0
+    ideal_background[ideal_background < 0] = 0.0
 
     return time_bins, observed_counts, ideal_signal, ideal_background
 

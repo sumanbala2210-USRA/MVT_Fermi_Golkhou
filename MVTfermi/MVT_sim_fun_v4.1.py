@@ -1,19 +1,21 @@
-# MVT_sim_v3.py
-# 08.04.2025  This script simulates MVT (Mean Variance Time) data.
-#             Now supports Gaussian, Triangular, Norris, FRED, and Lognormal pulses.
-#             It reads 'simulations.yaml' for parameters, generates light curves,
-#             applies Haar power modulation, and saves results.
-# 08.04.2025  Refined code structure, added error handling, and improved logging.
-#             Also added functions lognormal, fred and norris.
+"""
+MVT_sim_v4.py
+07.08.2025  This script simulates MVT (Mean Variance Time) data.
+            It supports Gaussian, Triangular, Norris, FRED, and Lognormal pulses.
+            It reads 'simulations.yaml' for parameters, generates light curves,
+            applies Haar power modulation, and saves results.
+            The output CSV is standardized to include all possible parameter
+            columns, regardless of the pulse type, for easier analysis.
+"""
 
 # ========= Import necessary libraries =========
 import os
 import traceback
 import logging
-import smtplib
-from email.message import EmailMessage
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
+
+import smtplib
 import itertools
 
 import numpy as np
@@ -29,45 +31,33 @@ from sim_functions import (
     generate_triangular_light_curve,
     generate_norris_light_curve,
     generate_fred_light_curve,
-    generate_lognormal_light_curve
+    generate_lognormal_light_curve,
 )
 
 # ========= USER SETTINGS =========
-MAX_WORKERS = os.cpu_count() - 1  # Leave one core free
-BATCH_WRITE_SIZE = 10             # Number of results to write to CSV at once
-SIM_CONFIG_FILE = 'simulations_3.1.yaml'
-GMAIL_FILE = 'config_mail.yaml'
-# =================================
+MAX_WORKERS = os.cpu_count() - 1      # Leave one core free
+BATCH_WRITE_SIZE = 10                 # Number of results to write to CSV at once
+SIM_CONFIG_FILE = 'simulations_3.1.yaml' # The YAML configuration file
 
-# ========= UTILITY FUNCTIONS (unchanged) =========
-
-def send_email(input='!!'):
-    # This function remains the same
-    pass # Implementation hidden for brevity
+# ========= UTILITY FUNCTIONS =========
 
 def e_n(number):
-    # This function remains the same
+    """Formats numbers for concise filenames."""
     if number == 0:
         return "0"
     abs_number = abs(number)
     if 1e-2 <= abs_number <= 1e3:
-        if float(number).is_integer():
-            return str(int(number))
-        else:
-            return f"{number:.2f}".replace('.', 'p') # Use 'p' for decimal point in filenames
-    scientific_notation = "{:.1e}".format(abs_number)
+        return f"{number:.2f}".replace('.', 'p') if not float(number).is_integer() else str(int(number))
+    
+    scientific_notation = f"{abs_number:.1e}"
     base, exponent = scientific_notation.split('e')
     exponent = int(exponent)
-    abs_exponent = abs(exponent)
-    if float(base).is_integer():
-        base = str(int(float(base)))
-    if exponent < 0:
-        return f"{base}em{abs_exponent}"
-    else:
-        return f"{base}e{abs_exponent}"
+    base = str(int(float(base))) if float(base).is_integer() else base
+    
+    return f"{base}{'em' if exponent < 0 else 'e'}{abs(exponent)}"
 
 def plot_simulation_results(time_bins, observed_counts, signal_counts, background_counts, save_path, **params):
-    # This function remains the same
+    """Generates and saves a plot of the simulated light curve."""
     plt.figure(figsize=(12, 7))
     plt.plot(time_bins, observed_counts, label='Observed (Signal + Background)', color='black', drawstyle='steps-post')
     plt.plot(time_bins, signal_counts, label='Signal Component', color='cornflowerblue', linestyle='--', alpha=0.8)
@@ -83,7 +73,7 @@ def plot_simulation_results(time_bins, observed_counts, signal_counts, backgroun
     plt.close()
 
 def _parse_param(param_config):
-    # This function remains the same
+    """Helper function to parse parameter definitions from the YAML config."""
     if isinstance(param_config, dict) and 'start' in param_config:
         return np.arange(**param_config)
     if isinstance(param_config, list):
@@ -92,12 +82,9 @@ def _parse_param(param_config):
         return [param_config]
     raise TypeError(f"Unsupported parameter format in YAML: {param_config}")
 
-
 # ========= GENERIC SIMULATION FRAMEWORK =========
 
 # --- 1. The Simulation Registry ---
-# This dictionary maps the 'type' from your YAML to the correct Python classes.
-# EXTENDED to include the new models.
 SIMULATION_REGISTRY = {
     'gaussian': 'GaussianSimulationTask',
     'triangular': 'TriangularSimulationTask',
@@ -108,7 +95,14 @@ SIMULATION_REGISTRY = {
 
 # --- 2. The Generic Task Classes ---
 class BaseSimulationTask:
-    """A base class for all simulation tasks."""
+    """A base class for all simulation tasks with standardized result formatting."""
+    
+    # Define all possible model-specific parameters across all simulation types
+    ALL_MODEL_PARAMS = [ 'sigma',  'width', 'tau', 'rise_time', 'decay_time', 'start_time', 'center_time', 'peak_time', 'peak_time_ratio']
+
+
+    DEFAULT_PARAM_VALUE = 999.0 # Value for non-applicable parameters
+
     def __init__(self, output_path, variable_params, constant_params):
         self.output_path = output_path
         self.params = {**variable_params, **constant_params}
@@ -125,11 +119,11 @@ class BaseSimulationTask:
         return "_".join(name_parts)
 
     def run(self):
-        """The main execution method, to be implemented by each subclass."""
+        """The main execution method, must be implemented by each subclass."""
         raise NotImplementedError("The 'run' method must be implemented by a subclass.")
 
     def _execute_and_process(self, generation_func):
-        """A standardized execution block for all tasks."""
+        """A standardized execution block that generates data and formats results."""
         try:
             # 1. Generate light curve data
             t_bins, counts, s_counts, b_counts = generation_func(**self.params)
@@ -138,53 +132,63 @@ class BaseSimulationTask:
             sim_plot_path = os.path.join(self.output_path, self.sim_name + '_sim.png')
             plot_simulation_results(t_bins, counts, s_counts, b_counts, sim_plot_path, **self.params)
 
-            # 3. Run the MVT analysis and plot results
+            # 3. Run the MVT analysis
             mvt_plot_path = os.path.join(self.output_path, self.sim_name + '_mvt.png')
-            afact = -1.0
-            #afact = -1.0 if self.params['back_factor'] == 1.0 else 1.0
-            results = haar_power_mod(counts, np.sqrt(counts), min_dt=self.params['bin_width'], doplot=False, afactor=afact, file=mvt_plot_path, verbose=False)
+            results = haar_power_mod(counts, np.sqrt(counts), min_dt=self.params['bin_width'], doplot=True, afactor=-1.0, file=mvt_plot_path, verbose=False)
+            plt.close('all')
 
-            # 4. Return formatted results for the CSV file
-            return {'type': self.sim_type, 'mvt_ms': round(float(results[2])*1000, 3),
-                    'mvt_error_ms': round(float(results[3])*1000, 3), **self.params}
+            # 4. Gather results into a temporary dictionary
+            result_data = {
+                'type': self.sim_type,
+                'mvt_ms': round(float(results[2]) * 1000, 3),
+                'mvt_error_ms': round(float(results[3]) * 1000, 3),
+                **self.params
+            }
+        
         except Exception as e:
             logging.error(f"Error processing {self.sim_name}: {e}", exc_info=True)
-            return {'Simulation': self.sim_name, 'type': self.sim_type, 'mvt_ms': -100}
+            result_data = {
+                'type': self.sim_type,
+                'mvt_ms': -100,
+                'mvt_error_ms': -100,
+                **self.params
+            }
 
-# REFINED Gaussian Task
+        # 5. Create the final, standardized dictionary for the CSV file
+        final_dict = {}
+        
+
+        standard_keys = ['type', 'mvt_ms', 'mvt_error_ms', 'peak_amplitude', 'bin_width', 'background_level', 'back_factor']
+        
+        # Add standard, non-model keys
+        for key in standard_keys:
+            final_dict[key] = result_data.get(key)
+        
+        # Add all possible model-specific parameters
+        for key in self.ALL_MODEL_PARAMS:
+            final_dict[key] = result_data.get(key, self.DEFAULT_PARAM_VALUE)
+
+        return final_dict
+
+# --- Task-specific classes ---
 class GaussianSimulationTask(BaseSimulationTask):
-    """Task for Gaussian light curves."""
-    def run(self):
-        return self._execute_and_process(generate_gaussian_light_curve)
+    def run(self): return self._execute_and_process(generate_gaussian_light_curve)
 
-# REFINED Triangular Task
 class TriangularSimulationTask(BaseSimulationTask):
-    """Task for Triangular light curves."""
-    def run(self):
-        return self._execute_and_process(generate_triangular_light_curve)
+    def run(self): return self._execute_and_process(generate_triangular_light_curve)
 
-# NEW Norris Task
 class NorrisSimulationTask(BaseSimulationTask):
-    """Task for Norris light curves."""
-    def run(self):
-        return self._execute_and_process(generate_norris_light_curve)
+    def run(self): return self._execute_and_process(generate_norris_light_curve)
 
-# NEW FRED Task
 class FredSimulationTask(BaseSimulationTask):
-    """Task for FRED light curves."""
-    def run(self):
-        return self._execute_and_process(generate_fred_light_curve)
+    def run(self): return self._execute_and_process(generate_fred_light_curve)
 
-# NEW Lognormal Task
 class LognormalSimulationTask(BaseSimulationTask):
-    """Task for Lognormal light curves."""
-    def run(self):
-        return self._execute_and_process(generate_lognormal_light_curve)
+    def run(self): return self._execute_and_process(generate_lognormal_light_curve)
 
-
-# --- 3. The Fully Generic Task Generator (unchanged) ---
+# --- 3. The Fully Generic Task Generator ---
 def generate_sim_tasks_from_config(config_path, output_path):
-    """Reads the config and uses the registry and itertools to generate all parameter combinations."""
+    """Reads the config and generates all parameter combinations for simulation tasks."""
     with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
 
@@ -192,6 +196,7 @@ def generate_sim_tasks_from_config(config_path, output_path):
         if not campaign.get('enabled', True):
             logging.info(f"Campaign '{campaign['name']}' is disabled. Skipping.")
             continue
+        
         sim_type = campaign.get('type')
         if not sim_type or sim_type not in SIMULATION_REGISTRY:
             logging.warning(f"Campaign '{campaign['name']}' has invalid type '{sim_type}'. Skipping.")
@@ -210,17 +215,16 @@ def generate_sim_tasks_from_config(config_path, output_path):
             variable_params = dict(zip(param_names, combination))
             yield TaskClass(output_path, variable_params, constants)
 
-# --- 4. The Worker Function (unchanged) ---
+# --- 4. The Worker Function ---
 def run_simulation(task):
     """A simple top-level function to be called by the ProcessPoolExecutor."""
     return task.run()
 
-# ========= MAIN EXECUTION BLOCK (unchanged) =========
+# ========= MAIN EXECUTION BLOCK =========
 def main():
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    output_dir = f'SIM_vs_mvt_{now}'
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    output_path = os.path.join(script_dir, output_dir)
+    output_dir = f'SIM_MVT_{now}'
+    output_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), output_dir)
     os.makedirs(output_path, exist_ok=True)
     
     log_file = os.path.join(output_path, 'run.log')
@@ -229,15 +233,15 @@ def main():
     try:
         tasks = list(generate_sim_tasks_from_config(SIM_CONFIG_FILE, output_path))
     except Exception as e:
-        logging.error(f"Failed to generate simulation tasks. Check YAML format. Error: {e}", exc_info=True)
+        logging.error(f"Failed to generate tasks. Check YAML format. Error: {e}", exc_info=True)
         return
         
     if not tasks:
-        logging.warning("No simulation tasks were generated. Check config file.")
+        logging.warning("No simulation tasks generated. Check your config file.")
         return
 
-    logging.info(f"Generated {len(tasks)} simulation tasks. Starting parallel processing with {MAX_WORKERS} workers.")
-    output_csv_path = os.path.join(output_path, f"results_{now}.csv")
+    logging.info(f"Generated {len(tasks)} simulation tasks. Starting parallel processing...")
+    output_csv_path = os.path.join(output_path, f"all_results_{now}.csv")
     results_batch = []
     header_written = False
 
@@ -261,7 +265,6 @@ def main():
         df_batch.to_csv(output_csv_path, mode='a', index=False, header=not header_written)
 
     logging.info(f"All simulations processed! Results saved to:\n{output_csv_path}")
-    # send_email(f"Successfully processed {len(tasks)} simulations.")
 
 if __name__ == '__main__':
     main()

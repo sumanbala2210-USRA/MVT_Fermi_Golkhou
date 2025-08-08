@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from plot_from_config import plot_matplotlib, plot_plotly
+import numpy as np # Make sure numpy is imported
 
 st.set_page_config(layout="wide")
 st.title("MVT Simulation Plotter")
@@ -19,12 +20,16 @@ if uploaded_file is not None:
 
     st.sidebar.header("Plot Configuration")
     
-    # --- NEW: Select which plotting engine to use ---
     plot_backend = st.sidebar.radio("Plotting Backend", ["Interactive (Plotly)", "Static (Matplotlib)"])
 
     x_col = st.sidebar.selectbox("X-Axis:", columns, index=columns.index('sigma') if 'sigma' in columns else 0)
     y_col = st.sidebar.selectbox("Y-Axis:", columns, index=columns.index('mvt_ms') if 'mvt_ms' in columns else 1)
     group_col = st.sidebar.selectbox("Group By:", columns, index=columns.index('peak_amplitude') if 'peak_amplitude' in columns else 2)
+    
+    # --- NEW: Select a column to control marker style ---
+    # We add "None" to allow disabling this feature.
+    marker_col_options = [None] + columns
+    marker_col = st.sidebar.selectbox("Marker Style By:", marker_col_options, index=0)
     
     st.sidebar.markdown("---")
     show_error_bars = st.sidebar.checkbox("Show Error Bars", value=True)
@@ -41,7 +46,7 @@ if uploaded_file is not None:
         x_max = st.number_input("X-axis Max", value=None, format="%g")
         y_max = st.number_input("Y-axis Max", value=None, format="%g")
         
-    plot_theme = st.sidebar.selectbox("Plot Theme", ["simple_white","Contrast White", "Contrast Dark", "Seaborn-like"])
+    plot_theme = st.sidebar.selectbox("Plot Theme", ["simple_white", "Contrast White", "Contrast Dark", "Seaborn-like"])
 
     st.sidebar.markdown("---") 
     plot_height = st.sidebar.number_input("Plot Height (pixels)", min_value=400, value=700, step=50)
@@ -61,12 +66,17 @@ if uploaded_file is not None:
 
         if "Interactive" in plot_backend:
             fig = plot_plotly(
-                df=df, x_axis_col=x_col, y_axis_col=y_col, group_by_col=group_col, filters=filters,
-                show_lower_limits=show_limits, show_error_bars=show_error_bars, use_log_x=use_log_x, use_log_y=use_log_y, x_range=x_range, y_range=y_range, plot_theme=plot_theme, plot_height=plot_height
+                df=df, x_axis_col=x_col, y_axis_col=y_col, group_by_col=group_col, 
+                marker_col=marker_col, # --- PASS THE NEW PARAMETER ---
+                filters=filters, show_lower_limits=show_limits, show_error_bars=show_error_bars, 
+                use_log_x=use_log_x, use_log_y=use_log_y, x_range=x_range, y_range=y_range, 
+                plot_theme=plot_theme, plot_height=plot_height
             )
             if fig:
                 st.plotly_chart(fig, use_container_width=True, theme=None)
         else: # Static
+            # Note: The matplotlib function would also need modification to support this.
+            # This example focuses on the Plotly implementation.
             fig = plot_matplotlib(
                 df=df, x_axis_col=x_col, y_axis_col=y_col, group_by_col=group_col, filters=filters,
                 show_lower_limits=show_limits, show_error_bars=show_error_bars, use_log_x=use_log_x,

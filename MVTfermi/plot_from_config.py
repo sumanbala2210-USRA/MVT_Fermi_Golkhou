@@ -240,7 +240,7 @@ def plot_matplotlib(
 
 
 
-def plot_plotly(
+def plot_plotly_old(
     df,
     x_axis_col,
     group_by_col,
@@ -302,12 +302,7 @@ def plot_plotly(
         template="plotly_white",
         hover_data=hover_cols
     )
-    
 
-
-    
-    
-    
     
     fig.update_layout(showlegend=True) # Ensure legend is shown
 
@@ -349,19 +344,13 @@ def plot_plotly(
 
 
 
-
-
-
-
-
-
-
-def plot_plotly_test(
+def plot_plotly_best(
     df,
     x_axis_col,
     group_by_col,
     y_axis_col='mvt_ms',
     y_err_col='mvt_error_ms',
+    marker_col=None,  # --- NEW: Parameter for marker style ---
     filters=None,
     show_lower_limits=True,
     show_error_bars=True,
@@ -369,91 +358,116 @@ def plot_plotly_test(
     use_log_y=False,
     x_range=None,
     y_range=None,
-    plot_theme="simple_white",
+    plot_theme="Contrast White",
     plot_height=700
 ):
     """
-    Creates an interactive plot using Plotly Express with a discrete legend.
+    Creates a final, advanced interactive plot using Plotly Express,
+    with support for dynamic marker styles.
     """
-    df = df[df[y_err_col] >= 0].copy()
+    # 1. Conditionally remove zero-error points based on the UI toggle
+    if not show_lower_limits:
+        plot_df = df[df[y_err_col] > 0].copy()
+    else:
+        # We need all data to properly handle the lower limit markers
+        plot_df = df[df[y_err_col] >= 0].copy()
 
+    # 2. Apply user-defined filters
     if filters:
         for key, value in filters.items():
-            df = df[df[key].isin(value) if isinstance(value, list) else df[key] == value]
+            plot_df = plot_df[plot_df[key].isin(value)]
 
-    if df.empty:
+    if plot_df.empty:
+        st.warning("No data left to plot after applying filters.")
         return None
 
-    # --- NEW: Convert the grouping column to a string to force a discrete legend ---
-    df[group_by_col] = df[group_by_col].astype(str)
+    # 3. Prepare data for plotting
+    plot_df[group_by_col] = plot_df[group_by_col].astype(str)
+    
+    # --- NEW: Logic to handle dynamic marker symbols ---
+    symbol_arg = None
+    
+    # This logic creates a single column for Plotly to control symbols.
+    # It intelligently combines your 'marker_col' choice and the 'show_lower_limits' toggle.
+    if show_lower_limits and y_err_col in plot_df.columns:
+        if marker_col:
+            # When a marker column is chosen, use its values for regular points
+            # and a special value 'Lower Limit' for points with zero/negative error.
+            legend_title = marker_col.replace('_', ' ').title()
+            plot_df[marker_col] = plot_df[marker_col].astype(str)
+            plot_df[legend_title] = np.where(plot_df[y_err_col] > 0, plot_df[marker_col], 'Lower Limit')
+            symbol_arg = legend_title
+        else:
+            # If no marker column, just differentiate 'Data' from 'Lower Limit'.
+            plot_df['Point Type'] = np.where(plot_df[y_err_col] > 0, 'Data', 'Lower Limit')
+            symbol_arg = 'Point Type'
+    elif marker_col:
+        # If showing lower limits is off, just use the marker column directly.
+        symbol_arg = marker_col
 
+    # 4. Prepare other plot arguments
     error_y_arg = y_err_col if show_error_bars else None
+    reject_list = ['t_start', 't_stop', 'det', 'trigger_number', 'peak_time_ratio', 'background_level', 'pulse']
+    hover_cols = [col for col in plot_df.columns if col not in reject_list]
 
-    # We set a neutral base template and will apply our custom styles later.
+    # 5. Create the figure
     fig = px.scatter(
-        df, x=x_axis_col, y=y_axis_col, color=group_by_col,
-        error_y=y_err_col if show_error_bars else None,
-        log_x=use_log_x, log_y=use_log_y,
+        plot_df,
+        x=x_axis_col,
+        y=y_axis_col,
+        color=group_by_col,
+        symbol=symbol_arg,  # --- USE THE DYNAMICALLY ASSIGNED SYMBOL ARGUMENT ---
+        error_y=error_y_arg,
+        log_x=use_log_x,
+        log_y=use_log_y,
         labels={
             x_axis_col: x_axis_col.replace('_', ' ').title(),
             y_axis_col: y_axis_col.replace('_', ' ').title(),
             group_by_col: group_by_col.replace('_', ' ').title()
         },
-        title=f"{y_axis_col.replace('_', ' ')} vs. {x_axis_col.replace('_', ' ')}",
-        template="plotly_white" # Start with a neutral base
+        title=f"{y_axis_col.replace('_', ' ').title()} vs. {x_axis_col.replace('_', ' ').title()}",
+        template="plotly_white",
+        hover_data=hover_cols
     )
-    
-   
-    # --- Custom Theme Definitions ---
-    theme_styles = {
-        "Contrast White": {
-            'paper_bgcolor': "white", 'plot_bgcolor': "white", 'font_color': "black",
-            'gridcolor': '#D3D3D3', 'zerolinecolor': '#C0C0C0'
-        },
-        "Contrast Dark": {
-            'paper_bgcolor': "#1E1E1E", 'plot_bgcolor': "#2E2E2E", 'font_color': "white",
-            'gridcolor': '#4A4A4A', 'zerolinecolor': '#7A7A7A'
-        },
-        "Seaborn-like": {
-            'paper_bgcolor': "#F0F2F6", 'plot_bgcolor': "#F0F2F6", 'font_color': "black",
-            'gridcolor': 'white', 'zerolinecolor': 'white'
-        }
-    }
 
-    # Apply the selected custom theme
+    # 6. Apply custom theme styling
+    theme_styles = {
+        "Contrast White": {'paper_bgcolor': "white", 'plot_bgcolor': "white", 'font_color': "black", 'gridcolor': '#D3D3D3', 'zerolinecolor': '#C0C0C0'},
+        "Contrast Dark": {'paper_bgcolor': "#1E1E1E", 'plot_bgcolor': "#2E2E2E", 'font_color': "white", 'gridcolor': '#4A4A4A', 'zerolinecolor': '#7A7A7A'},
+        "Seaborn-like": {'paper_bgcolor': "#F0F2F6", 'plot_bgcolor': "#F0F2F6", 'font_color': "black", 'gridcolor': 'white', 'zerolinecolor': 'white'}
+    }
     if plot_theme in theme_styles:
         style = theme_styles[plot_theme]
-        fig.update_layout(
-            paper_bgcolor=style['paper_bgcolor'],
-            plot_bgcolor=style['plot_bgcolor'],
-            font_color=style['font_color']
-        )
+        fig.update_layout(paper_bgcolor=style['paper_bgcolor'], plot_bgcolor=style['plot_bgcolor'], font_color=style['font_color'])
         fig.update_xaxes(gridcolor=style['gridcolor'], zerolinecolor=style['zerolinecolor'])
         fig.update_yaxes(gridcolor=style['gridcolor'], zerolinecolor=style['zerolinecolor'])
+    elif plot_theme == "simple_white":
+        fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font_color="black")
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', zerolinecolor='gray')
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', zerolinecolor='gray')
 
-    # --- Final layout updates ---
-    if show_lower_limits:
-        zero_error_points = df[df[y_err_col] == 0]
-        if not zero_error_points.empty:
-            fig.add_scatter(x=zero_error_points[x_axis_col], y=zero_error_points[y_axis_col],
-                             mode='markers', marker=dict(symbol='diamond', size=8), name='Lower Limit', showlegend=False)
-            
-    fig.update_traces(marker=dict(size=7), error_y=dict(thickness=1))
-    fig.update_layout(legend_title_text=group_by_col.replace('_', ' ').title(), title_x=0.5,
-                      xaxis_range=x_range, yaxis_range=y_range)
+    # 7. Final layout updates
+    fig.update_traces(marker=dict(size=14), error_y=dict(thickness=1))
+    fig.update_layout(
+        height=plot_height, 
+        legend_title_text=group_by_col.replace('_', ' ').title(),
+        title_x=0.5, 
+        xaxis_range=x_range, 
+        yaxis_range=y_range
+    )
+    
     return fig
 
-import plotly.graph_objects as go
-import plotly.express as px
-import numpy as np
-import pandas as pd
 
-def plot_plotly1(
+
+
+def plot_plotly(
     df,
     x_axis_col,
     group_by_col,
     y_axis_col='mvt_ms',
     y_err_col='mvt_error_ms',
+    marker_col=None,
     filters=None,
     show_lower_limits=True,
     show_error_bars=True,
@@ -461,85 +475,134 @@ def plot_plotly1(
     use_log_y=False,
     x_range=None,
     y_range=None,
-    plot_theme="simple_white",
-    plot_height=700
+    plot_theme="Contrast White",
+    plot_height=800
 ):
     """
-    Builds the plot manually with graph_objects to bypass rendering bugs.
+    Creates a publication-quality, advanced interactive plot using Plotly Express.
+    Features larger fonts, thicker lines, and bordered markers for clarity.
     """
-    # 1. Prepare and filter the initial dataframe
-    plot_df = df.copy()
-    required_cols = [x_axis_col, y_axis_col, y_err_col, group_by_col]
-    plot_df.dropna(subset=required_cols, inplace=True) # Clean any potential NaN values
+    # 1. Conditionally remove zero-error points based on the UI toggle
+    if not show_lower_limits:
+        plot_df = df[df[y_err_col] > 0].copy()
+    else:
+        plot_df = df[df[y_err_col] >= 0].copy()
 
+    # 2. Apply user-defined filters
     if filters:
         for key, value in filters.items():
-            plot_df = plot_df[plot_df[key].isin(value) if isinstance(value, list) else plot_df[key] == value]
+            plot_df = plot_df[plot_df[key].isin(value)]
 
     if plot_df.empty:
         return None
 
-    # --- THE CORE FIX: SPLIT DATA AND BUILD MANUALLY ---
-    df_with_error = plot_df[plot_df[y_err_col] > 0]
-    df_no_error = plot_df[plot_df[y_err_col] == 0]
+    # 3. Prepare data for plotting
+    plot_df[group_by_col] = plot_df[group_by_col].astype(str)
+    
+    symbol_arg = None
+    color_legend_title = group_by_col.replace('_', ' ').title()
 
-    # Initialize figure and create a color map for ALL groups
-    fig = go.Figure()
-    unique_groups = sorted(plot_df[group_by_col].unique())
-    colors = px.colors.qualitative.Plotly
-    group_color_map = {group: colors[i % len(colors)] for i, group in enumerate(unique_groups)}
+    if show_lower_limits and y_err_col in plot_df.columns:
+        symbol_legend_title = 'Point Type'
+        if marker_col:
+            symbol_legend_title = marker_col.replace('_', ' ').title()
+            plot_df[marker_col] = plot_df[marker_col].astype(str)
+            plot_df[symbol_legend_title] = np.where(plot_df[y_err_col] > 0, plot_df[marker_col], 'Lower Limit')
+            symbol_arg = symbol_legend_title
+        else:
+            plot_df[symbol_legend_title] = np.where(plot_df[y_err_col] > 0, 'Data', 'Lower Limit')
+            symbol_arg = symbol_legend_title
+    elif marker_col:
+        symbol_arg = marker_col.replace('_', ' ').title()
+        plot_df[symbol_arg] = plot_df[marker_col].astype(str)
 
-    # 2. Plot traces that HAVE error bars
-    if not df_with_error.empty:
-        for group_val in unique_groups:
-            trace_df = df_with_error[df_with_error[group_by_col] == group_val]
-            if not trace_df.empty:
-                fig.add_trace(go.Scatter(
-                    x=trace_df[x_axis_col], y=trace_df[y_axis_col],
-                    name=str(group_val), mode='markers',
-                    marker=dict(symbol='circle', color=group_color_map.get(group_val), size=10),
-                    error_y=dict(
-                        type='data', array=trace_df[y_err_col], visible=True, thickness=1.5
-                    ) if show_error_bars else None,
-                    legendgroup=str(group_val)
-                ))
+    # 4. Prepare other plot arguments
+    error_y_arg = y_err_col if show_error_bars else None
+    reject_list = ['t_start', 't_stop', 'det', 'trigger_number', 'peak_time_ratio', 'background_level', 'pulse']
+    hover_cols = [col for col in plot_df.columns if col not in reject_list]
 
-    # 3. Plot traces WITHOUT error bars (lower limits)
-    if not df_no_error.empty and show_lower_limits:
-        for group_val in unique_groups:
-            trace_df = df_no_error[df_no_error[group_by_col] == group_val]
-            if not trace_df.empty:
-                is_new_group = str(group_val) not in [trace.name for trace in fig.data]
-                fig.add_trace(go.Scatter(
-                    x=trace_df[x_axis_col], y=trace_df[y_axis_col],
-                    name=str(group_val), mode='markers',
-                    marker=dict(symbol='diamond', color=group_color_map.get(group_val), size=10),
-                    legendgroup=str(group_val),
-                    showlegend=is_new_group
-                ))
-
-    # 4. Apply theming and final layout
-    theme_styles = {
-        "simple_white": {'paper_bgcolor': "white", 'plot_bgcolor': "white", 'font_color': "black", 'gridcolor': 'lightgray'},
-        "Contrast White": {'paper_bgcolor': "white", 'plot_bgcolor': "white", 'font_color': "black", 'gridcolor': '#D3D3D3'},
-        "Contrast Dark": {'paper_bgcolor': "#1E1E1E", 'plot_bgcolor': "#2E2E2E", 'font_color': "white", 'gridcolor': '#4A4A4A'},
-    }
-    style = theme_styles.get(plot_theme, theme_styles["simple_white"])
-    fig.update_layout(
-        paper_bgcolor=style['paper_bgcolor'], plot_bgcolor=style['plot_bgcolor'], font_color=style['font_color'],
-        height=plot_height,
-        title_text=f"{y_axis_col.replace('_', ' ')} vs. {x_axis_col.replace('_', ' ')}",
-        xaxis_title=x_axis_col, yaxis_title=y_axis_col,
-        legend_title_text=group_by_col.replace('_', ' ').title(),
-        title_x=0.5,
-        xaxis_range=x_range, yaxis_range=y_range,
-        xaxis_type='log' if use_log_x else 'linear',
-        yaxis_type='log' if use_log_y else 'linear'
+    # 5. Create the figure
+    fig = px.scatter(
+        plot_df,
+        x=x_axis_col,
+        y=y_axis_col,
+        color=group_by_col,
+        symbol=symbol_arg,
+        error_y=error_y_arg,
+        log_x=use_log_x,
+        log_y=use_log_y,
+        labels={
+            x_axis_col: x_axis_col.replace('_', ' ').title(),
+            y_axis_col: y_axis_col.replace('_', ' ').title(),
+            group_by_col: color_legend_title
+        },
+        #title=f"{y_axis_col.replace('_', ' ').title()} vs. {x_axis_col.replace('_', ' ').title()}",
+        template="plotly_white",
+        hover_data=hover_cols,
+        symbol_map={'Lower Limit': 'diamond-open'}
     )
-    fig.update_xaxes(gridcolor=style['gridcolor'])
-    fig.update_yaxes(gridcolor=style['gridcolor'])
+
+    # 6. Apply custom theme styling
+    theme_styles = {
+        "Contrast White": {'paper_bgcolor': "white", 'plot_bgcolor': "white", 'font_color': "black", 'gridcolor': '#D3D3D3', 'zerolinecolor': '#C0C0C0'},
+        "Contrast Dark": {'paper_bgcolor': "#1E1E1E", 'plot_bgcolor': "#2E2E2E", 'font_color': "white", 'gridcolor': '#4A4A4A', 'zerolinecolor': '#7A7A7A'},
+        "Seaborn-like": {'paper_bgcolor': "#F0F2F6", 'plot_bgcolor': "#F0F2F6", 'font_color': "black", 'gridcolor': 'white', 'zerolinecolor': 'white'}
+    }
+    font_color = "black"
+    # --- NEW: Define border color based on theme ---
+    border_color = "black" 
+    if plot_theme in theme_styles:
+        style = theme_styles[plot_theme]
+        font_color = style['font_color']
+        if plot_theme == "Contrast Dark":
+            border_color = "white" # Use white border for dark theme
+        fig.update_layout(paper_bgcolor=style['paper_bgcolor'], plot_bgcolor=style['plot_bgcolor'], font_color=font_color)
+        fig.update_xaxes(gridcolor=style['gridcolor'], zerolinecolor=style['zerolinecolor'])
+        fig.update_yaxes(gridcolor=style['gridcolor'], zerolinecolor=style['zerolinecolor'])
+    elif plot_theme == "simple_white":
+        fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font_color="black")
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', zerolinecolor='gray')
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray', zerolinecolor='gray')
+
+    # 7. Final layout updates for publication quality
+    fig.update_traces(
+        marker=dict(
+            size=12,
+            # --- NEW: Add a border to all markers ---
+            line=dict(
+                width=1.5,
+                color=border_color  # Use the theme-aware border color
+            )
+        ),
+        error_y=dict(thickness=2.0)
+    )
+
+    fig.update_layout(
+        height=plot_height,
+        title_x=0.5,
+        xaxis_range=x_range,
+        yaxis_range=y_range,
+        font=dict(
+            family="Arial, sans-serif",
+            size=18,
+            color=font_color
+        ),
+        title_font_size=24,
+        xaxis=dict(title_font_size=22),
+        yaxis=dict(title_font_size=22),
+        legend=dict(
+            title_font_size=20,
+            font_size=18,
+            traceorder="normal"
+        )
+    )
     
     return fig
+
+
+
+
+
 
 
 def main():

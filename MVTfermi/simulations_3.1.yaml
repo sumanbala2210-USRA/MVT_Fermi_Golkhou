@@ -6,15 +6,17 @@
 # =========================================================
 - name: Gaussian_Amplitude_Scan
   type: gaussian
-  enabled: false
+  enabled: true
   parameters:
-    peak_amplitude: [50, 100, 200, 300, 400, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000]
-    sigma: [0.01, 0.1, 1.0]
+    peak_amplitude: [50, 100, 200, 300, 400, 500, 700, 1000, 10000]
+    #peak_amplitude: [50, 100, 300, 500, 1000] #, 10000, 100000, 1000000]
+    sigma: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    back_factor: [1.0]
+    bin_width: [0.0001, 0.001]
   constants:
     center_time: 0.0
     background_level: 50
-    bin_width: 0.0001
-    random_seed: 42
+    random_seed: 19
     pre_post_background_time: 2.0 # Can be set here if needed
 
 # =========================================================
@@ -22,32 +24,34 @@
 # =========================================================
 - name: Triangular_Symmetry_Scan
   type: triangular
-  enabled: false
+  enabled: True
   parameters:
-    peak_amplitude: [50, 100, 200, 300, 400, 500, 1000, 5000, 10000, 50000, 500000, 1000000]
-    width: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 1.5]
+    peak_amplitude: [50, 100, 200, 300, 400, 500, 700, 1000, 10000]
+    width: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    back_factor: [1.0]
+    bin_width: [0.0001, 0.001]
   constants:
     peak_time_ratio: 0.5 # Varies symmetry
     start_time: 0.0
     background_level: 50
-    bin_width: 0.0001
-    random_seed: 42
+    random_seed: 19
 
 # =========================================================
 # NEW: FRED (Norris nu=1) Pulse Simulations
 # =========================================================
 - name: FRED_Decay_Scan
   type: fred
-  enabled: false # Set to 'true' to run this campaign
+  enabled: True # Set to 'true' to run this campaign
   parameters:
-    peak_amplitude: [50, 100, 200, 300, 400, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000]
-    rise_time: [0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
+    peak_amplitude: [50, 100, 200, 300, 400, 500, 700, 1000, 10000]
+    rise_time: [0.001, 0.002, 0.003, 0.004, 0.005, 0.007, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0]
     decay_time: [0.5]
+    back_factor: [1.0]
+    bin_width: [0.0001, 0.001]
   constants:
     peak_time: 0.0
     background_level: 50
-    bin_width: 0.0001
-    random_seed: 42
+    random_seed: 19
 
 # =========================================================
 # NEW: General Norris Pulse Simulations
@@ -56,28 +60,30 @@
   type: norris
   enabled: false # Set to 'true' to run this campaign
   parameters:
-    peak_amplitude: [50, 100, 200, 300, 400, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000]
+    peak_amplitude: [50, 100, 200, 300, 400, 500, 1000, 5000, 10000]
     rise_time: [0.1]
     decay_time: [1.0]
     pulse_shape_nu: [0.8, 1.0, 1.5, 2.0] # nu=1 is FRED, nu=2 is Gaussian-like
+    back_factor: [1.0]
+    bin_width: [0.0001, 0.001]
   constants:
     peak_time: 0.0
     background_level: 50
-    bin_width: 0.0001
-    random_seed: 42
+    random_seed: 19
 
 # =========================================================
 # NEW: Lognormal Pulse Simulations
 # =========================================================
 - name: Lognormal_Skew_Scan
   type: lognormal
-  enabled: true # Set to 'true' to run this campaign
+  enabled: True # Set to 'true' to run this campaign
   parameters:
-    peak_amplitude: [50, 100, 200, 300, 400, 500, 1000, 5000, 10000, 50000, 100000, 500000, 1000000]
+    peak_amplitude: [50, 100, 200, 300, 400, 500, 700, 1000, 10000]
     sigma: [0.4, 0.8, 1.2] # Controls width
-    tau: [0.001, 0.002, 0.003, 0.004, 0.005, 0.006, 0.007, 0.008, 0.009, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0] # Controls start time relative to peak and skewness
+    tau: [0.001, 0.002, 0.003, 0.004, 0.005, 0.007, 0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 1.0] # Controls start time relative to peak and skewness
+    back_factor: [1.0]
+    bin_width: [0.0001, 0.001]
   constants:
     peak_time: 0.0
     background_level: 50
-    bin_width: 0.0001
-    random_seed: 42
+    random_seed: 19
