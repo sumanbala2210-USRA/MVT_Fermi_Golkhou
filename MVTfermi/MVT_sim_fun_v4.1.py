@@ -121,8 +121,9 @@ class BaseSimulationTask:
     def run(self):
         """The main execution method, must be implemented by each subclass."""
         raise NotImplementedError("The 'run' method must be implemented by a subclass.")
+    
 
-    def _execute_and_process(self, generation_func):
+    def _execute_and_process_old(self, generation_func):
         """A standardized execution block that generates data and formats results."""
         try:
             # 1. Generate light curve data
@@ -169,6 +170,136 @@ class BaseSimulationTask:
             final_dict[key] = result_data.get(key, self.DEFAULT_PARAM_VALUE)
 
         return final_dict
+
+    def _execute_and_process(self, generation_func):
+        """
+        A standardized execution block that runs the simulation 100 times to get
+        stable MVT statistics, then generates data and formats results.
+        It now correctly modifies the random_seed for each run.
+        """
+        try:
+            # List to store the MVT result from each of the 100 runs
+            mvt_timescales_ms = []
+
+            # --- KEY CHANGE: Handle the random seed ---
+            # Store the original seed from the YAML file.
+            original_seed = self.params.get('random_seed')
+            
+            # Define plot paths once, they will only be used in the last loop
+            sim_plot_path = os.path.join(self.output_path, self.sim_name + '_sim.png')
+            mvt_plot_path = os.path.join(self.output_path, self.sim_name + '_mvt.png')
+
+            # Loop 30 times to gather MVT statistics
+            NN=100
+            for i in range(NN):
+                # --- KEY CHANGE: Update the seed for this specific run ---
+                # If the original seed is a number, increment it. Otherwise, keep it as None.
+                # This ensures each of the 30 simulations is a unique random realization.
+                if original_seed is not None:
+                    self.params['random_seed'] = original_seed + i
+
+                # We only want to generate plots for the final iteration as an example
+                is_last_iteration = (i == NN - 1)
+
+                # 1. Generate a new, random light curve realization with the updated seed
+                t_bins, counts, s_counts, b_counts = generation_func(**self.params)
+
+                # 2. Plot the simulated light curve (only on the last run)
+                if is_last_iteration:
+                    plot_simulation_results(t_bins, counts, s_counts, b_counts, sim_plot_path, **self.params)
+                    plt.close('all')
+
+                # 3. Run the MVT analysis. doplot is controlled by the loop.
+                results = haar_power_mod(counts, np.sqrt(counts), min_dt=self.params['bin_width'], doplot=True, afactor=-1.0, file=mvt_plot_path, verbose=False)
+                plt.close('all')
+                
+                # Append the result in milliseconds
+                mvt_error = float(results[3])
+                if mvt_error != 0:
+                    mvt_timescales_ms.append(float(results[2]) * 1000)
+            
+
+            # Check if there are any valid results before proceeding
+            if len(mvt_timescales_ms) > 0:
+                # Calculate robust statistics from the 1D Series
+                p16, median_mvt, p84 = np.percentile(mvt_timescales_ms, [16, 50, 84])
+                upper_error = p84 - median_mvt
+                lower_error = median_mvt - p16
+
+                # --- Create and Save the Plot ---
+                plt.style.use('seaborn-v0_8-whitegrid')
+                fig, ax = plt.subplots(figsize=(10, 6))
+
+                # Plot the histogram using the 1D Series
+                ax.hist(mvt_timescales_ms, bins=30, density=True, color='skyblue',
+                        edgecolor='black', alpha=0.8, label=f"MVT Distribution ({len(mvt_timescales_ms)}/{NN} runs)")
+
+                # Overlay the statistics
+                ax.axvline(median_mvt, color='firebrick', linestyle='-', lw=2.5,
+                        label=f"Median = {median_mvt:.3f} ms")
+                ax.axvspan(p16, p84, color='firebrick', alpha=0.2,
+                        label=f"68% C.I. Range [{p16:.3f}, {p84:.3f}]")
+
+                # Formatting
+                ax.set_title(f"{self.sim_name}", fontsize=10)
+                ax.set_xlabel("Minimum Variability Timescale (ms)", fontsize=12)
+                ax.set_ylabel("Probability Density", fontsize=12)
+                ax.legend(fontsize=10)
+                ax.set_xlim(left=max(0, p16 - 3 * lower_error)) # This is now safe
+                fig.tight_layout()
+
+                # Save the plot
+                output_plot_path = os.path.join(self.output_path, self.sim_name + '_mvt_distribution.png')
+                plt.savefig(output_plot_path, dpi=300)
+                plt.close(fig)
+
+            # --- KEY CHANGE: Restore the original seed ---
+            # This ensures the original parameter from the YAML is reported in the CSV.
+            self.params['random_seed'] = original_seed
+
+            # After the loop, calculate the mean and standard deviation of the results
+            # --- KEY CHANGE: Safely calculate statistics ---
+            # Check if the list contains any valid results before calculating
+            if len(mvt_timescales_ms)>1:
+                mean_mvt_ms = np.mean(mvt_timescales_ms)
+                error_mvt_ms = np.std(mvt_timescales_ms)
+            else:
+                # If all runs had a zero error, report MVT as 0
+                mean_mvt_ms = 0.0
+                error_mvt_ms = 0.0
+                
+            # 4. Gather results into a temporary dictionary using the computed stats
+            result_data = {
+                'type': self.sim_type,
+                'mvt_ms': round(mean_mvt_ms, 3),
+                'mvt_error_ms': round(error_mvt_ms, 3),
+                **self.params # Now contains the original seed
+            }
+        
+        except Exception as e:
+            logging.error(f"Error processing {self.sim_name}: {e}", exc_info=True)
+            result_data = {
+                'type': self.sim_type,
+                'mvt_ms': -100,
+                'mvt_error_ms': -100,
+                **self.params
+            }
+
+        # 5. Create the final, standardized dictionary for the CSV file (this part is unchanged)
+        final_dict = {}
+        # Add 'random_seed' to the list of standard keys to ensure it's in the output
+        standard_keys = ['type', 'mvt_ms', 'mvt_error_ms', 'peak_amplitude', 'bin_width', 'background_level', 'back_factor']
+        
+        # Add standard, non-model keys
+        for key in standard_keys:
+            final_dict[key] = result_data.get(key)
+        
+        # Add all possible model-specific parameters
+        for key in self.ALL_MODEL_PARAMS:
+            final_dict[key] = result_data.get(key, self.DEFAULT_PARAM_VALUE)
+        
+        return final_dict
+
 
 # --- Task-specific classes ---
 class GaussianSimulationTask(BaseSimulationTask):
