@@ -23,19 +23,20 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from haar_power_mod import haar_power_mod
-from TTE_SIM import gen_GBM_pulse, gaussian2, triangular, constant, linear, quadratic, norris, fred #complex_pulse_example
+from TTE_SIM import gen_GBM_pulse, gen_pulse, gaussian2, triangular, constant, linear, quadratic, norris, fred #complex_pulse_example
 
 
 # ========= USER SETTINGS (Unchanged) =========
 MAX_WORKERS = os.cpu_count() - 1
 BATCH_WRITE_SIZE = 10
-SIM_CONFIG_FILE = 'simulations_GBM_v1.yaml'
+SIM_CONFIG_FILE = 'simulations_GBM_v5.2.yaml'
 GMAIL_FILE = 'config_mail.yaml'
 
 # ========= GENERIC SIMULATION FRAMEWORK =========
 # --- 1. The Simulation Registry (Unchanged) ---
 SIMULATION_REGISTRY = {
     'gbm': 'GbmSimulationTask',
+    'function': 'FunSimulationTask',
 }
 
 
@@ -167,7 +168,7 @@ class GbmSimulationTask(BaseSimulationTask):
         DEFAULT_PARAM_VALUE = 999
         NN= self.params.get('total_sim', 30)
         original_seed = self.params.get('random_seed')
-        standard_keys = ['pulse', 'total_sim', 'failed_sim', 'peak_amplitude', 'background_level', 'trigger_number', 'det', 'angle', 'mvt_ms', 'mvt_error_ms', 'src_max', 'back_avg', 'SNR', 'bin_width']
+        standard_keys = ['pulse', 'total_sim', 'failed_sim', 'peak_amplitude', 'background_level', 'trigger_number', 'det', 'angle', 'mvt_ms', 'mvt_error_ms', 'src_max', 'back_avg', 'SNR']
 
         try:
             # 1. Prepare pulse-specific parameters
@@ -320,7 +321,228 @@ class GbmSimulationTask(BaseSimulationTask):
                 plt.close(fig)
             
             self.params['random_seed'] = original_seed
+            if len(valid_mvt) > 1:
+                pass
+            elif len(valid_mvt) == 1:
+                lower_error = 0.0 # Cannot calculate std dev from one point
+            else:
+                # If all runs had a zero error, report MVT as 0
+                median_mvt = 0.0
+                lower_error = 0.0
 
+            # 3. Run the simulation (unchanged)
+            # 4. Gather results into a temporary dictionary
+            result_data = {
+                'pulse': pulse_shape,
+                'total_sim': int(NN),
+                'failed_sim': int(NN - len(valid_mvt)),
+                'peak_amplitude': self.params.get('peak_amplitude'),
+                'background_level': self.params.get('background_level'),
+                'trigger_number': self.params.get('trigger_number'),
+                'det': self.params.get('det'),
+                'angle': self.params.get('angle'),
+                'mvt_ms': round(float(median_mvt), 3),
+                'mvt_error_ms': round(float(lower_error), 3),
+                'src_max': safe_round(valid_src_max.mean() if len(valid_src_max) > 0 else -100),
+                'back_avg': safe_round(valid_back_avg.mean() if len(valid_back_avg) > 0 else -100),
+                'SNR': safe_round(valid_SNR.mean() if len(valid_SNR) > 0 else -100),
+            }
+            result_data.update(pulse_params)
+
+        except Exception as e:
+            logging.error(f"Error processing {self.sim_name}: {e}", exc_info=True)
+            result_data = {
+                'pulse': self.params.get('pulse_shape', 'unknown'),
+                'total_sim': int(NN),
+                'failed_sim': int(NN - len(valid_mvt)),
+                'peak_amplitude': self.params.get('peak_amplitude'),
+                'background_level': self.params.get('background_level'),
+                'trigger_number': self.params.get('trigger_number'),
+                'det': self.params.get('det'),
+                'angle': self.params.get('angle'),
+                'mvt_ms': -100, 'mvt_error_ms': -100, 'src_max': -100,
+                'back_avg': -100, 'SNR': -100,
+            }
+
+        # --- FINAL STEP: Create the standardized dictionary for output ---
+        final_dict = {}
+        
+
+        for key in standard_keys:
+            final_dict[key] = result_data.get(key)
+        
+        # Add all possible pulse parameter keys, using the default value if a key is not in this run's result_data
+        for key in ALL_PULSE_PARAMS:
+            final_dict[key] = result_data.get(key, DEFAULT_PARAM_VALUE)
+
+        return final_dict
+    
+
+class FunSimulationTask(BaseSimulationTask):
+    """Task for Fermi GBM light curves using specified pulse shapes."""
+    def run(self):
+        details_path = os.path.join(self.output_path, self.sim_name)
+        os.makedirs(details_path, exist_ok=True)
+
+        # Define all possible pulse-specific parameters that can appear in the output.
+        ALL_PULSE_PARAMS = ['sigma', 'center_time', 'width', 'peak_time_ratio', 'start_time', 'rise_time', 'decay_time']
+        # Define a default value for parameters that don't apply to a given pulse.
+        DEFAULT_PARAM_VALUE = 999
+        NN= self.params.get('total_sim', 30)
+        original_seed = self.params.get('random_seed')
+        standard_keys = ['pulse', 'total_sim', 'failed_sim', 'peak_amplitude', 'background_level', 'mvt_ms', 'mvt_error_ms', 'src_max', 'back_avg', 'SNR']
+
+        try:
+            # 1. Prepare pulse-specific parameters
+            pulse_shape = self.params.get('pulse_shape')
+            if not pulse_shape:
+                raise ValueError("'pulse_shape' must be defined.")
+
+            pulse_specific_keys = {
+                'gaussian': ['sigma', 'center_time'],
+                'triangular': ['width', 'center_time', 'peak_time_ratio'],
+                'norris': ['rise_time', 'decay_time', 'start_time'],
+                'fred': ['rise_time', 'decay_time', 'start_time']
+            }
+            pulse_params = {k: self.params[k] for k in pulse_specific_keys.get(pulse_shape, []) if k in self.params}
+
+            # 2. Set up the correct function and its parameters based on pulse_shape
+            # (This logic is the same as your original code)
+            
+            
+            if pulse_shape == 'gaussian':
+                func_to_use = gaussian2
+                func_par = (self.params['peak_amplitude'], self.params['center_time'], self.params['sigma'])
+            elif pulse_shape == 'triangular':
+                func_to_use = triangular
+                tpeak, width, peak_ratio = self.params['center_time'], self.params['width'], self.params['peak_time_ratio']
+                tstart = tpeak - (width * peak_ratio)
+                tstop = tstart + width
+                func_par = (self.params['peak_amplitude'], tstart, tpeak, tstop)
+            elif pulse_shape == 'norris':
+                func_to_use = norris
+                func_par = (
+                    self.params['peak_amplitude'],
+                    self.params['start_time'],
+                    self.params['rise_time'],
+                    self.params['decay_time']
+                )
+            elif pulse_shape == 'fred':
+                func_to_use = fred
+                func_par = (
+                    self.params['peak_amplitude'],
+                    self.params['start_time'],
+                    self.params['rise_time'],
+                    self.params['decay_time']
+                )
+            else:
+                raise ValueError(f"Unsupported pulse_shape for GBM: '{pulse_shape}'")
+            
+            # These will be updated on the last successful run
+
+            # This list will hold raw MVT values for statistical summary
+            mvt_timescales_ms = np.zeros(NN, dtype=float)
+            mvt_err_timescales_ms = np.zeros(NN, dtype=float)
+
+            src_max_list = np.zeros(NN, dtype=float)
+            back_avg_list = np.zeros(NN, dtype=float)
+            SNR_list = np.zeros(NN, dtype=float)
+            # This list will hold full dictionaries for the detailed CSV file
+            iteration_details_list = []
+
+            is_last_iteration = False
+            for i in range(NN):
+                iteration_seed = original_seed + i
+
+            # 2. Set up background function and run simulation (same as your code)
+                try:
+                    fun_args = {k: self.params.get(k) for k in ['t_start', 't_stop', 'bkgd_times', 'bin_width', 'random_seed']}
+                    fun_args['random_seed'] = iteration_seed # Ensure each run has a unique seed
+                    #fun_args['fig_name'] = sim_plot_path
+                    fun_args = {k: v for k, v in fun_args.items() if v is not None}
+                    back_func_par = (self.params['background_level'],)
+                    sim_plot_path = os.path.join(details_path, self.sim_name + '.png')
+
+                    is_last_iteration = (i == NN - 1)
+
+                    t_bins, counts, src_max, back_avg, SNR = gen_pulse(
+                        func=func_to_use, func_par=func_par, back_func=constant, back_func_par=back_func_par, simulation= is_last_iteration, 
+                        fig_name=sim_plot_path, **fun_args
+                    )
+                    results = haar_power_mod(counts, np.sqrt(counts), min_dt=self.params.get('bin_width', 0.0001), doplot=False, afactor=-1.0, verbose=False)
+                    plt.close('all')
+                    mvt_val = float(results[2]) * 1000
+                    mvt_err = float(results[3]) * 1000
+                
+                except Exception as iter_e:
+                # If one iteration fails, log it and move to the next one
+                    logging.warning(f"Run {i+1}/{NN} for {self.sim_name} failed and will be skipped. Error: {iter_e}")
+                    src_max, back_avg, SNR = -100, -100, -100
+                    mvt_val, mvt_err = -100, -100
+
+                src_max_list[i] = src_max
+                back_avg_list[i] = back_avg
+                SNR_list[i] = SNR                   
+                mvt_timescales_ms[i] = mvt_val
+                mvt_err_timescales_ms[i] = mvt_err
+
+
+                base_params = self.params.copy()
+                # Remove the key we will be adding manually
+                base_params.pop('random_seed', None) 
+                # Remove the nested dictionary to keep the CSV clean
+                base_params.pop('pulse_configs', None)
+
+                # --- SAVE DETAILED CSV ---
+                iter_detail = {'iteration': i + 1, 'random_seed': iteration_seed, 'mvt_ms': mvt_val, 'mvt_error_ms': mvt_err, 'src_max': src_max, 'back_avg': back_avg, 'SNR': SNR, **base_params}
+                iter_detail.pop('pulse_configs', None)  # Remove pulse_configs if it exists
+                iteration_details_list.append(iter_detail)
+
+                            # --- SAVE DETAILED CSV ---
+            if iteration_details_list:
+                detailed_df = pd.DataFrame(iteration_details_list)
+                detailed_csv_path = os.path.join(details_path, f"Detailed_{self.sim_name}.csv")
+                detailed_df.to_csv(detailed_csv_path, index=False)
+
+            valid_mvt = mvt_timescales_ms[mvt_err_timescales_ms > 0]
+            valid_src_max = src_max_list[src_max_list > 0]
+            valid_back_avg = back_avg_list[back_avg_list > 0]
+            valid_SNR = SNR_list[SNR_list > 0]
+            # Check if there are any valid results before proceeding
+            if len(valid_mvt) > 0:
+                # Calculate robust statistics from the 1D Series
+                p16, median_mvt, p84 = np.percentile(valid_mvt, [16, 50, 84])
+                upper_error = p84 - median_mvt
+                lower_error = median_mvt - p16
+
+                # --- Create and Save the Plot ---
+                plt.style.use('seaborn-v0_8-whitegrid')
+                fig, ax = plt.subplots(figsize=(10, 6))
+
+                # Plot the histogram using the 1D Series
+                ax.hist(valid_mvt, bins=30, density=True, color='skyblue',
+                        edgecolor='black', alpha=0.8, label=f"MVT Distribution ({len(valid_mvt)}/{NN} runs)")
+
+                # Overlay the statistics
+                ax.axvline(median_mvt, color='firebrick', linestyle='-', lw=2.5,
+                        label=f"Median = {median_mvt:.3f} ms")
+                ax.axvspan(p16, p84, color='firebrick', alpha=0.2,
+                        label=f"68% C.I. Range [{p16:.3f}, {p84:.3f}]")
+
+                # Formatting
+                ax.set_title(f"{self.sim_name}", fontsize=10)
+                ax.set_xlabel("Minimum Variability Timescale (ms)", fontsize=12)
+                ax.set_ylabel("Probability Density", fontsize=12)
+                ax.legend(fontsize=10)
+                ax.set_xlim(left=max(0, p16 - 3 * lower_error)) # This is now safe
+                fig.tight_layout()
+
+                # Save the plot
+                output_plot_path = os.path.join(details_path, 'Distribution_mvt_' +self.sim_name + '.png')
+                plt.savefig(output_plot_path, dpi=300)
+                plt.close(fig)
+            
+            self.params['random_seed'] = original_seed
             if len(valid_mvt) > 1:
                 pass
             elif len(valid_mvt) == 1:

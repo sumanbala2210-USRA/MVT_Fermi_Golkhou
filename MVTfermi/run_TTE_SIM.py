@@ -389,7 +389,7 @@ if __name__ == '__main__':
     #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par)
     #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=triangular, func_par=tri_par, back_func=constant, back_func_par=const_par)
     #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=fred, func_par=tri_par, back_func=constant, back_func_par=const_par)
-    test = 1
+    test = 0
     if test == 1:
         compute_GBM_mvt_distribution_parallel( '250709653', '6', 10.73, gauss_params, const_par,
                 n_iter=1000,

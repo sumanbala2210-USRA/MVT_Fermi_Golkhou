@@ -191,6 +191,15 @@ def bin_events_to_lightcurve(
     
     return times, counts
 
+# Helper functions (no changes needed for these)
+def constant(x, amp):
+    fxn = np.empty(x.size)
+    fxn.fill(amp)
+    return fxn
+
+def gaussian(x, amp, center, sigma):
+    return amp * np.exp(-((x - center)**2) / (2 * sigma**2))
+
 
 def gen_pulse_old(
     t_start=-10.0,
@@ -277,6 +286,7 @@ def gen_pulse(
     source_base_rate=1000.0,   # NEW: Base rate for the source pulse
     background_base_rate=1000.0, # NEW: Base rate for the background
     fig_name=None,
+    random_seed=42,
     simulation=True
 ):
     """
@@ -328,36 +338,35 @@ def gen_pulse(
     snr = src_max_cps / np.sqrt(back_avg_cps) if back_avg_cps > 0 else np.inf
 
     # 6. Create the final light curve
-    if simulation:
-        counts = np.random.poisson(total_expected_counts)
-    else:
-        counts = total_expected_counts
+    #if simulation:
+    np.random.seed(random_seed)
+    counts = np.random.poisson(total_expected_counts)#, random_seed=random_seed)
+
 
     # 7. Optional plotting
-    if fig_name is not None:
+    if simulation:
         plt.figure(figsize=(12, 7))
-        plt.step(times, counts / bin_width, where='mid', label='Simulated Rate (cps)')
-        plt.plot(times, source_rate_cps + background_rate_cps, 'r--',
-                 alpha=0.8, label='Ideal Rate (cps)')
+        #plt.step(times, counts, where='mid', label='Simulated Rate (cps)')
+        plt.plot(times, np.random.poisson(source_rate_cps), 'b-', alpha=0.8, label='Source Rate (cps)')
+        plt.plot(times, np.random.poisson(background_rate_cps), 'g--', alpha=0.8, label='Background Rate (cps)')
+        #plt.plot(times, source_rate_cps + background_rate_cps, 'r--',
+        #         alpha=0.8, label='Ideal Rate (cps)')
+        plt.plot(times, np.random.poisson(source_rate_cps + background_rate_cps), 'r--',
+                 alpha=0.8, label='Total Rate (cps)')
         plt.xlabel("Time (s)")
         plt.ylabel("Rate (counts/sec)")
         plt.title(f"Simulated Pulse Profile (SNR ≈ {int(np.round(snr))})")
         plt.legend()
         plt.grid(True, linestyle='--', alpha=0.5)
+        if fig_name is None:
+            fig_name = f'lc_{func.__name__}_pulse.png'
         plt.savefig(fig_name)
         plt.close()
-        print(f"✅ Plot saved to {fig_name}")
+        #print(f"✅ Plot saved to {fig_name}")
 
     return times, counts, int(np.round(src_max_cps)), int(np.round(back_avg_cps)), int(np.round(snr))
 
-# Helper functions (no changes needed for these)
-def constant(x, amp):
-    fxn = np.empty(x.size)
-    fxn.fill(amp)
-    return fxn
 
-def gaussian(x, amp, center, sigma):
-    return amp * np.exp(-((x - center)**2) / (2 * sigma**2))
 
 
 def gen_GBM_pulse(trigger_number,
@@ -533,10 +542,10 @@ if __name__ == '__main__':
         print(f"Processing trigger {trigger['trigger']} with detector {trigger['det']}")
         gen_GBM_pulse(trigger['trigger'], trigger['det'], trigger['angle'], -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par)
     """
-    results = gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par, random_seed=37)
+    #results = gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par, random_seed=37)
     #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=triangular, func_par=tri_par, back_func=constant, back_func_par=const_par)
     #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=fred, func_par=tri_par, back_func=constant, back_func_par=const_par)
-    """
+    
     results = gen_pulse(
         t_start=-10.0,
         t_stop=10.0,
@@ -546,7 +555,7 @@ if __name__ == '__main__':
         back_func_par=const_par,
         bin_width=0.0001,
         fig_name='test_gaussian.png',
-        simulation=False
+        simulation=True
     )
-    """
+
     print(f"Generated pulse with times: {results[0]}, counts: {results[1]},source max cps: {results[2]}, background avg cps: {results[3]}, SNR: {results[4]}")
