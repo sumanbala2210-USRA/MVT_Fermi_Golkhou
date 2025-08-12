@@ -195,28 +195,33 @@ class BaseSimulationTask:
                 # --- KEY CHANGE: Update the seed for this specific run ---
                 # If the original seed is a number, increment it. Otherwise, keep it as None.
                 # This ensures each of the 30 simulations is a unique random realization.
-                if original_seed is not None:
-                    self.params['random_seed'] = original_seed + i
+                try:
+                    if original_seed is not None:
+                        self.params['random_seed'] = original_seed + i
 
-                # We only want to generate plots for the final iteration as an example
-                is_last_iteration = (i == NN - 1)
+                    # We only want to generate plots for the final iteration as an example
+                    is_last_iteration = (i == NN - 1)
 
-                # 1. Generate a new, random light curve realization with the updated seed
-                t_bins, counts, s_counts, b_counts = generation_func(**self.params)
+                    # 1. Generate a new, random light curve realization with the updated seed
+                    t_bins, counts, s_counts, b_counts = generation_func(**self.params)
 
-                # 2. Plot the simulated light curve (only on the last run)
-                if is_last_iteration:
-                    plot_simulation_results(t_bins, counts, s_counts, b_counts, sim_plot_path, **self.params)
+                    # 2. Plot the simulated light curve (only on the last run)
+                    if is_last_iteration:
+                        plot_simulation_results(t_bins, counts, s_counts, b_counts, sim_plot_path, **self.params)
+                        plt.close('all')
+
+                    # 3. Run the MVT analysis. doplot is controlled by the loop.
+                    results = haar_power_mod(counts, np.sqrt(counts), min_dt=self.params['bin_width'], doplot=True, afactor=-1.0, file=mvt_plot_path, verbose=False)
                     plt.close('all')
-
-                # 3. Run the MVT analysis. doplot is controlled by the loop.
-                results = haar_power_mod(counts, np.sqrt(counts), min_dt=self.params['bin_width'], doplot=True, afactor=-1.0, file=mvt_plot_path, verbose=False)
-                plt.close('all')
-                
-                # Append the result in milliseconds
-                mvt_error = float(results[3])
-                if mvt_error != 0:
-                    mvt_timescales_ms.append(float(results[2]) * 1000)
+                    
+                    # Append the result in milliseconds
+                    mvt_error = float(results[3])
+                    if mvt_error != 0:
+                        mvt_timescales_ms.append(float(results[2]) * 1000)
+                except Exception as iter_e:
+                    # If one iteration fails, log it and move to the next one
+                    logging.warning(f"Run {i+1}/{NN} for {self.sim_name} failed and will be skipped. Error: {iter_e}")
+                    continue
             
 
             # Check if there are any valid results before proceeding

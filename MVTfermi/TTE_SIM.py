@@ -373,6 +373,7 @@ def gen_GBM_pulse(trigger_number,
                   en_lo=8.0,
                   en_hi=900.0,
                   bin_width = 0.0001,
+                  random_seed=42,
                   fig_name=None,
                   simulation=False):
     energy_range_nai = (en_lo, en_hi)
@@ -416,13 +417,13 @@ def gen_GBM_pulse(trigger_number,
 
     
     # source simulation
-    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, deadtime=1e-6)
+    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, deadtime=1e-6, rng=np.random.default_rng(random_seed))
     
     tte_src = tte_sim.to_tte(t_start, t_stop)
     
     # background simulation
     #tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', quadratic, quadratic_params)
-    tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, deadtime=1e-6)
+    tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, deadtime=1e-6, rng=np.random.default_rng(random_seed))
     tte_bkgd = tte_sim.to_tte(t_start, t_stop)
     
     # merge the background and source
@@ -433,29 +434,36 @@ def gen_GBM_pulse(trigger_number,
     back_avg = 1
     SNR = 1
 
-    if not simulation:
+    try:
+        plot_bw = 0.1
+        phaii = tte_total.to_phaii(bin_by_time, plot_bw)
+        
+        phaii = tte_total.to_phaii(bin_by_time, plot_bw)
+        phii_src = tte_src.to_phaii(bin_by_time, plot_bw)
+        phii_bkgd = tte_bkgd.to_phaii(bin_by_time, plot_bw)
+        lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
+        lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
+        lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
+
+        """
+        lcplot = Lightcurve(data=lc_tot, background=lc_bkgd)
+        _= lcplot.add_selection(lc_src)
+        lcplot.selections[1].color = 'pink'
+        """
+
+        src_max = max(lc_src.counts)
+        back_avg = np.mean(lc_bkgd.counts)
+        SNR = src_max / np.sqrt(back_avg)
+    
+    except Exception as e:
+        print(f"Error during SNR computing")
+        lc_tot = None
+        lc_src = None
+        lc_bkgd = None
+
+
+    if simulation:
         try:
-            plot_bw = 0.1
-            phaii = tte_total.to_phaii(bin_by_time, plot_bw)
-            
-            phaii = tte_total.to_phaii(bin_by_time, plot_bw)
-            phii_src = tte_src.to_phaii(bin_by_time, plot_bw)
-            phii_bkgd = tte_bkgd.to_phaii(bin_by_time, plot_bw)
-            lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
-            lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
-            lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
-
-            """
-            lcplot = Lightcurve(data=lc_tot, background=lc_bkgd)
-            _= lcplot.add_selection(lc_src)
-            lcplot.selections[1].color = 'pink'
-            """
-
-            src_max = max(lc_src.counts)
-            back_avg = np.mean(lc_bkgd.counts)
-            SNR = src_max / np.sqrt(back_avg)
-
-
             #lcplot = Lightcurve(data=phaii.to_lightcurve(energy_range=energy_range_nai))
             lcplot = Lightcurve(data=lc_tot)
             lcplot.add_selection(lc_src)
@@ -500,7 +508,7 @@ def gen_GBM_pulse(trigger_number,
     return data.centroids, data.counts, int(np.round(src_max)), int(np.round(back_avg)), int(np.round(SNR))
 
 if __name__ == '__main__':
-    gauss_params = (5, 0.0, 0.2)
+    gauss_params = (0.5, 0.0, 0.2)
     tri_par = (0.01, -1., 0.0, 1.)
     const_par = (1, )
     fred_par = (0.5, 0.0, 0.05, 0.1)  # amp, tstart, trise, tdecay
@@ -525,9 +533,10 @@ if __name__ == '__main__':
         print(f"Processing trigger {trigger['trigger']} with detector {trigger['det']}")
         gen_GBM_pulse(trigger['trigger'], trigger['det'], trigger['angle'], -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par)
     """
-    #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par)
+    results = gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=gaussian2, func_par=gauss_params, back_func=constant, back_func_par=const_par, random_seed=37)
     #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=triangular, func_par=tri_par, back_func=constant, back_func_par=const_par)
     #gen_GBM_pulse('250709653', '6', 10.73, -10.0, 10.0, func=fred, func_par=tri_par, back_func=constant, back_func_par=const_par)
+    """
     results = gen_pulse(
         t_start=-10.0,
         t_stop=10.0,
@@ -539,5 +548,5 @@ if __name__ == '__main__':
         fig_name='test_gaussian.png',
         simulation=False
     )
-
+    """
     print(f"Generated pulse with times: {results[0]}, counts: {results[1]},source max cps: {results[2]}, background avg cps: {results[3]}, SNR: {results[4]}")
