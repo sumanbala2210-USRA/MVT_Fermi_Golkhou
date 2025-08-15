@@ -18,15 +18,15 @@ from haar_power_mod import haar_power_mod
 # --- Simulation Parameters ---
 simulation_no_of_iterations = 10  # Number of Monte Carlo iterations for MVT calculation 
 # simulation_no_of_iterations does not matter for 'poisson' type, keep it low ~5-10.
-#sim_type = 'photon'  # 'photon' for photon events, 'poisson' for direct Poisson binning
-sim_type = 'poisson'  # 'photon' for photon events, 'poisson' for direct Poisson binning
-random_seed = 10  # Seed for reproducibility
+sim_type = 'photon'  # 'photon' for photon events, 'poisson' for direct Poisson binning
+#sim_type = 'poisson'  # 'photon' for photon events, 'poisson' for direct Poisson binning
+random_seed = 30  # Seed for reproducibility
 overall_amp = 2000.0
-bin_width = 0.0001
-duration = 15 # 15 for max
+bin_width = 0.01
+duration = 3.5 # 15 for max
 back = 1.0  # Background level, 0 or 1 to disable or enable background
 back_level = 100
-pos_fact = -2.5  # Position factor for Gaussian pulse, can be adjusted
+pos_fact = 1.0  # Position factor for Gaussian pulse, can be adjusted
 
 
 # ==============================================================================

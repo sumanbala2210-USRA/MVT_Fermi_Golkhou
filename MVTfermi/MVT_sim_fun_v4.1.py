@@ -1,5 +1,7 @@
 """
 MVT_sim_v4.py
+for functions uses 
+simulations_3.1.yaml
 07.08.2025  This script simulates MVT (Mean Variance Time) data.
             It supports Gaussian, Triangular, Norris, FRED, and Lognormal pulses.
             It reads 'simulations.yaml' for parameters, generates light curves,

@@ -5,10 +5,11 @@ Old: This script simulates light curves using Gaussian and triangular profiles.
 1st August 2025: Refactored to support modular, function-specific parameter
                  configurations via a nested YAML structure.
 2nd August 2025: Simplified YAML by using an 'enabled' flag per function.
+12th August 2025: combined functions and GBM simulations.
 """
 
 # ========= Import necessary libraries =========
-import os
+import os, shutil
 import yaml
 import logging
 import smtplib
@@ -23,11 +24,11 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 from haar_power_mod import haar_power_mod
-from TTE_SIM import gen_GBM_pulse, gen_pulse, gaussian2, triangular, constant, linear, quadratic, norris, fred #complex_pulse_example
+from TTE_SIM_v2 import gen_GBM_pulse, gen_pulse_advanced, gaussian2, triangular, constant, norris, fred, lognormal, generate_pulse_function #complex_pulse_example
 
 
 # ========= USER SETTINGS (Unchanged) =========
-MAX_WORKERS = os.cpu_count() - 1
+MAX_WORKERS = os.cpu_count() - 2
 BATCH_WRITE_SIZE = 10
 SIM_CONFIG_FILE = 'simulations_GBM_v5.2.yaml'
 GMAIL_FILE = 'config_mail.yaml'
@@ -93,23 +94,6 @@ def e_n(number):
         return f"{base}e{abs_exponent}"
 
 
-def plot_simulation_results(time_bins, observed_counts, signal_counts, background_counts, save_path, **params):
-    """Generates and saves a plot of the simulated light curve."""
-    plt.figure(figsize=(12, 7))
-    plt.plot(time_bins, observed_counts, label='Observed (Signal + Background)', color='black', drawstyle='steps-post')
-    plt.plot(time_bins, signal_counts, label='Signal Component', color='cornflowerblue', linestyle='--', alpha=0.8)
-    plt.plot(time_bins, background_counts, label='Background Component', color='salmon', linestyle=':', alpha=0.7)
-    plt.xlabel('Time (s)')
-    plt.ylabel('Counts')
-    title_params = ', '.join([f"{k}={v:.3g}" if isinstance(v, float) else f"{k}={v}" for k, v in params.items()])
-    plt.title(f'Simulated Light Curve\n{title_params}', fontsize=10)
-    plt.legend()
-    plt.grid(True, linestyle='--', alpha=0.6)
-    plt.tight_layout()
-    plt.savefig(save_path)
-    plt.close()
-
-
 # --- 2. The Generic Task Classes ---
 class BaseSimulationTask:
     """A base class for all simulation tasks."""
@@ -155,27 +139,30 @@ class BaseSimulationTask:
     def run(self):
         raise NotImplementedError("The 'run' method must be implemented by a subclass.")
 
-
-class GbmSimulationTask(BaseSimulationTask):
-    """Task for Fermi GBM light curves using specified pulse shapes."""
+class AbstractPulseSimulationTask(BaseSimulationTask):
+    """
+    An abstract base class that runs a standard pulse simulation loop.
+    Subclasses must define self.simulation_function.
+    """
     def run(self):
         details_path = os.path.join(self.output_path, self.sim_name)
         os.makedirs(details_path, exist_ok=True)
-
-        # Define all possible pulse-specific parameters that can appear in the output.
+        # --- (All the setup code from the start of your run method is identical) ---
         ALL_PULSE_PARAMS = ['sigma', 'center_time', 'width', 'peak_time_ratio', 'start_time', 'rise_time', 'decay_time']
-        # Define a default value for parameters that don't apply to a given pulse.
         DEFAULT_PARAM_VALUE = 999
         NN= self.params.get('total_sim', 30)
         original_seed = self.params.get('random_seed')
-        standard_keys = ['pulse', 'total_sim', 'failed_sim', 'peak_amplitude', 'background_level', 'trigger_number', 'det', 'angle', 'mvt_ms', 'mvt_error_ms', 'src_max', 'back_avg', 'SNR']
+        standard_keys = ['type', 'pulse', 'total_sim', 'failed_sim', 'peak_amplitude', 'background_level', 'trigger_number', 'det', 'angle', 'mvt_ms', 'mvt_error_ms', 'src_max', 'back_avg', 'SNR']
+        if self.is_gbm:
+            sim_type = 'GBM'
+        else:
+            sim_type = 'Function'
 
         try:
-            # 1. Prepare pulse-specific parameters
             pulse_shape = self.params.get('pulse_shape')
-            if not pulse_shape:
-                raise ValueError("'pulse_shape' must be defined.")
+            if not pulse_shape: raise ValueError("'pulse_shape' must be defined.")
 
+            # --- (All the pulse parameter and function setup logic is identical) ---
             pulse_specific_keys = {
                 'gaussian': ['sigma', 'center_time'],
                 'triangular': ['width', 'center_time', 'peak_time_ratio'],
@@ -213,47 +200,59 @@ class GbmSimulationTask(BaseSimulationTask):
                     self.params['rise_time'],
                     self.params['decay_time']
                 )
+            elif pulse_shape == 'lognormal':
+                func_to_use = lognormal
+                func_par = (
+                    self.params['peak_amplitude'],
+                    self.params['center_time'],
+                    self.params['sigma']
+                )
             else:
+
                 raise ValueError(f"Unsupported pulse_shape for GBM: '{pulse_shape}'")
             
             # These will be updated on the last successful run
 
-            # This list will hold raw MVT values for statistical summary
+            # --- (All the NumPy array initializations are identical) ---
             mvt_timescales_ms = np.zeros(NN, dtype=float)
             mvt_err_timescales_ms = np.zeros(NN, dtype=float)
-
             src_max_list = np.zeros(NN, dtype=float)
             back_avg_list = np.zeros(NN, dtype=float)
             SNR_list = np.zeros(NN, dtype=float)
-            # This list will hold full dictionaries for the detailed CSV file
             iteration_details_list = []
 
-            is_last_iteration = False
             for i in range(NN):
                 iteration_seed = original_seed + i
-
-            # 2. Set up background function and run simulation (same as your code)
                 try:
-                    gbm_args = {k: self.params.get(k) for k in ['trigger_number', 'det', 'angle', 't_start', 't_stop', 'bkgd_times', 'en_lo', 'en_hi', 'bin_width', 'random_seed']}
-                    gbm_args['random_seed'] = iteration_seed # Ensure each run has a unique seed
-                    #gbm_args['fig_name'] = sim_plot_path
+                    # --- (gbm_args setup is identical) ---
+                    gbm_args = {k: self.params.get(k) for k in ['trigger_number', 'det', 'angle', 't_start', 't_stop', 'bkgd_times', 'en_lo', 'en_hi', 'bin_width']}
+                    gbm_args['random_seed'] = iteration_seed
                     gbm_args = {k: v for k, v in gbm_args.items() if v is not None}
+                    if not self.is_gbm:
+                        gbm_args.pop('trigger_number', None)
+                        gbm_args.pop('det', None)
+                        gbm_args.pop('angle', None)
+                        gbm_args.pop('en_lo', None)
+                        gbm_args.pop('en_hi', None)
+
                     back_func_par = (self.params['background_level'],)
                     sim_plot_path = os.path.join(details_path, self.sim_name + '.png')
-
                     is_last_iteration = (i == NN - 1)
 
-                    t_bins, counts, src_max, back_avg, SNR = gen_GBM_pulse(
-                        func=func_to_use, func_par=func_par, back_func=constant, back_func_par=back_func_par, simulation= is_last_iteration, 
+                    # ▼▼▼ THE ONLY SIGNIFICANT CHANGE IS HERE ▼▼▼
+                    # Instead of a hardcoded function, use the one defined by the subclass.
+                    t_bins, counts, src_max, back_avg, SNR = self.simulation_function(
+                        func=func_to_use, func_par=func_par, back_func=constant, back_func_par=back_func_par, plot_flag=is_last_iteration,
                         fig_name=sim_plot_path, **gbm_args
                     )
+                    # ▲▲▲ THE ONLY SIGNIFICANT CHANGE IS HERE ▲▲▲
+
                     results = haar_power_mod(counts, np.sqrt(counts), min_dt=self.params.get('bin_width', 0.0001), doplot=False, afactor=-1.0, verbose=False)
                     plt.close('all')
                     mvt_val = float(results[2]) * 1000
                     mvt_err = float(results[3]) * 1000
-                
+
                 except Exception as iter_e:
-                # If one iteration fails, log it and move to the next one
                     logging.warning(f"Run {i+1}/{NN} for {self.sim_name} failed and will be skipped. Error: {iter_e}")
                     src_max, back_avg, SNR = -100, -100, -100
                     mvt_val, mvt_err = -100, -100
@@ -272,7 +271,7 @@ class GbmSimulationTask(BaseSimulationTask):
                 base_params.pop('pulse_configs', None)
 
                 # --- SAVE DETAILED CSV ---
-                iter_detail = {'iteration': i + 1, 'random_seed': iteration_seed, 'mvt_ms': mvt_val, 'mvt_error_ms': mvt_err, 'src_max': src_max, 'back_avg': back_avg, 'SNR': SNR, **base_params}
+                iter_detail = {'iteration': i + 1, 'random_seed': iteration_seed, 'mvt_ms': round(mvt_val,3), 'mvt_error_ms': round(mvt_err,3), 'src_max': src_max, 'back_avg': back_avg, 'SNR': SNR, **base_params}
                 iter_detail.pop('pulse_configs', None)  # Remove pulse_configs if it exists
                 iteration_details_list.append(iter_detail)
 
@@ -321,6 +320,7 @@ class GbmSimulationTask(BaseSimulationTask):
                 plt.close(fig)
             
             self.params['random_seed'] = original_seed
+
             if len(valid_mvt) > 1:
                 pass
             elif len(valid_mvt) == 1:
@@ -333,6 +333,7 @@ class GbmSimulationTask(BaseSimulationTask):
             # 3. Run the simulation (unchanged)
             # 4. Gather results into a temporary dictionary
             result_data = {
+                'type': sim_type,
                 'pulse': pulse_shape,
                 'total_sim': int(NN),
                 'failed_sim': int(NN - len(valid_mvt)),
@@ -352,6 +353,7 @@ class GbmSimulationTask(BaseSimulationTask):
         except Exception as e:
             logging.error(f"Error processing {self.sim_name}: {e}", exc_info=True)
             result_data = {
+                'type': sim_type,
                 'pulse': self.params.get('pulse_shape', 'unknown'),
                 'total_sim': int(NN),
                 'failed_sim': int(NN - len(valid_mvt)),
@@ -376,228 +378,26 @@ class GbmSimulationTask(BaseSimulationTask):
             final_dict[key] = result_data.get(key, DEFAULT_PARAM_VALUE)
 
         return final_dict
-    
-
-class FunSimulationTask(BaseSimulationTask):
-    """Task for Fermi GBM light curves using specified pulse shapes."""
-    def run(self):
-        details_path = os.path.join(self.output_path, self.sim_name)
-        os.makedirs(details_path, exist_ok=True)
-
-        # Define all possible pulse-specific parameters that can appear in the output.
-        ALL_PULSE_PARAMS = ['sigma', 'center_time', 'width', 'peak_time_ratio', 'start_time', 'rise_time', 'decay_time']
-        # Define a default value for parameters that don't apply to a given pulse.
-        DEFAULT_PARAM_VALUE = 999
-        NN= self.params.get('total_sim', 30)
-        original_seed = self.params.get('random_seed')
-        standard_keys = ['pulse', 'total_sim', 'failed_sim', 'peak_amplitude', 'background_level', 'mvt_ms', 'mvt_error_ms', 'src_max', 'back_avg', 'SNR']
-
-        try:
-            # 1. Prepare pulse-specific parameters
-            pulse_shape = self.params.get('pulse_shape')
-            if not pulse_shape:
-                raise ValueError("'pulse_shape' must be defined.")
-
-            pulse_specific_keys = {
-                'gaussian': ['sigma', 'center_time'],
-                'triangular': ['width', 'center_time', 'peak_time_ratio'],
-                'norris': ['rise_time', 'decay_time', 'start_time'],
-                'fred': ['rise_time', 'decay_time', 'start_time']
-            }
-            pulse_params = {k: self.params[k] for k in pulse_specific_keys.get(pulse_shape, []) if k in self.params}
-
-            # 2. Set up the correct function and its parameters based on pulse_shape
-            # (This logic is the same as your original code)
-            
-            
-            if pulse_shape == 'gaussian':
-                func_to_use = gaussian2
-                func_par = (self.params['peak_amplitude'], self.params['center_time'], self.params['sigma'])
-            elif pulse_shape == 'triangular':
-                func_to_use = triangular
-                tpeak, width, peak_ratio = self.params['center_time'], self.params['width'], self.params['peak_time_ratio']
-                tstart = tpeak - (width * peak_ratio)
-                tstop = tstart + width
-                func_par = (self.params['peak_amplitude'], tstart, tpeak, tstop)
-            elif pulse_shape == 'norris':
-                func_to_use = norris
-                func_par = (
-                    self.params['peak_amplitude'],
-                    self.params['start_time'],
-                    self.params['rise_time'],
-                    self.params['decay_time']
-                )
-            elif pulse_shape == 'fred':
-                func_to_use = fred
-                func_par = (
-                    self.params['peak_amplitude'],
-                    self.params['start_time'],
-                    self.params['rise_time'],
-                    self.params['decay_time']
-                )
-            else:
-                raise ValueError(f"Unsupported pulse_shape for GBM: '{pulse_shape}'")
-            
-            # These will be updated on the last successful run
-
-            # This list will hold raw MVT values for statistical summary
-            mvt_timescales_ms = np.zeros(NN, dtype=float)
-            mvt_err_timescales_ms = np.zeros(NN, dtype=float)
-
-            src_max_list = np.zeros(NN, dtype=float)
-            back_avg_list = np.zeros(NN, dtype=float)
-            SNR_list = np.zeros(NN, dtype=float)
-            # This list will hold full dictionaries for the detailed CSV file
-            iteration_details_list = []
-
-            is_last_iteration = False
-            for i in range(NN):
-                iteration_seed = original_seed + i
-
-            # 2. Set up background function and run simulation (same as your code)
-                try:
-                    fun_args = {k: self.params.get(k) for k in ['t_start', 't_stop', 'bkgd_times', 'bin_width', 'random_seed']}
-                    fun_args['random_seed'] = iteration_seed # Ensure each run has a unique seed
-                    #fun_args['fig_name'] = sim_plot_path
-                    fun_args = {k: v for k, v in fun_args.items() if v is not None}
-                    back_func_par = (self.params['background_level'],)
-                    sim_plot_path = os.path.join(details_path, self.sim_name + '.png')
-
-                    is_last_iteration = (i == NN - 1)
-
-                    t_bins, counts, src_max, back_avg, SNR = gen_pulse(
-                        func=func_to_use, func_par=func_par, back_func=constant, back_func_par=back_func_par, simulation= is_last_iteration, 
-                        fig_name=sim_plot_path, **fun_args
-                    )
-                    results = haar_power_mod(counts, np.sqrt(counts), min_dt=self.params.get('bin_width', 0.0001), doplot=False, afactor=-1.0, verbose=False)
-                    plt.close('all')
-                    mvt_val = float(results[2]) * 1000
-                    mvt_err = float(results[3]) * 1000
-                
-                except Exception as iter_e:
-                # If one iteration fails, log it and move to the next one
-                    logging.warning(f"Run {i+1}/{NN} for {self.sim_name} failed and will be skipped. Error: {iter_e}")
-                    src_max, back_avg, SNR = -100, -100, -100
-                    mvt_val, mvt_err = -100, -100
-
-                src_max_list[i] = src_max
-                back_avg_list[i] = back_avg
-                SNR_list[i] = SNR                   
-                mvt_timescales_ms[i] = mvt_val
-                mvt_err_timescales_ms[i] = mvt_err
 
 
-                base_params = self.params.copy()
-                # Remove the key we will be adding manually
-                base_params.pop('random_seed', None) 
-                # Remove the nested dictionary to keep the CSV clean
-                base_params.pop('pulse_configs', None)
+class GbmSimulationTask(AbstractPulseSimulationTask):
+    """A specific simulation task that uses the gen_GBM_pulse function."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The only difference: which function to use!
+        self.simulation_function = gen_GBM_pulse
+        # For the gbm type, we don't need to pop these gbm-specific args
+        self.is_gbm = True
 
-                # --- SAVE DETAILED CSV ---
-                iter_detail = {'iteration': i + 1, 'random_seed': iteration_seed, 'mvt_ms': mvt_val, 'mvt_error_ms': mvt_err, 'src_max': src_max, 'back_avg': back_avg, 'SNR': SNR, **base_params}
-                iter_detail.pop('pulse_configs', None)  # Remove pulse_configs if it exists
-                iteration_details_list.append(iter_detail)
+class FunSimulationTask(AbstractPulseSimulationTask):
+    """A specific simulation task that uses the gen_pulse function."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # The only difference: which function to use!
+        self.simulation_function = gen_pulse_advanced
+        # For the function type, we need to pop gbm-specific args
+        self.is_gbm = False
 
-                            # --- SAVE DETAILED CSV ---
-            if iteration_details_list:
-                detailed_df = pd.DataFrame(iteration_details_list)
-                detailed_csv_path = os.path.join(details_path, f"Detailed_{self.sim_name}.csv")
-                detailed_df.to_csv(detailed_csv_path, index=False)
-
-            valid_mvt = mvt_timescales_ms[mvt_err_timescales_ms > 0]
-            valid_src_max = src_max_list[src_max_list > 0]
-            valid_back_avg = back_avg_list[back_avg_list > 0]
-            valid_SNR = SNR_list[SNR_list > 0]
-            # Check if there are any valid results before proceeding
-            if len(valid_mvt) > 0:
-                # Calculate robust statistics from the 1D Series
-                p16, median_mvt, p84 = np.percentile(valid_mvt, [16, 50, 84])
-                upper_error = p84 - median_mvt
-                lower_error = median_mvt - p16
-
-                # --- Create and Save the Plot ---
-                plt.style.use('seaborn-v0_8-whitegrid')
-                fig, ax = plt.subplots(figsize=(10, 6))
-
-                # Plot the histogram using the 1D Series
-                ax.hist(valid_mvt, bins=30, density=True, color='skyblue',
-                        edgecolor='black', alpha=0.8, label=f"MVT Distribution ({len(valid_mvt)}/{NN} runs)")
-
-                # Overlay the statistics
-                ax.axvline(median_mvt, color='firebrick', linestyle='-', lw=2.5,
-                        label=f"Median = {median_mvt:.3f} ms")
-                ax.axvspan(p16, p84, color='firebrick', alpha=0.2,
-                        label=f"68% C.I. Range [{p16:.3f}, {p84:.3f}]")
-
-                # Formatting
-                ax.set_title(f"{self.sim_name}", fontsize=10)
-                ax.set_xlabel("Minimum Variability Timescale (ms)", fontsize=12)
-                ax.set_ylabel("Probability Density", fontsize=12)
-                ax.legend(fontsize=10)
-                ax.set_xlim(left=max(0, p16 - 3 * lower_error)) # This is now safe
-                fig.tight_layout()
-
-                # Save the plot
-                output_plot_path = os.path.join(details_path, 'Distribution_mvt_' +self.sim_name + '.png')
-                plt.savefig(output_plot_path, dpi=300)
-                plt.close(fig)
-            
-            self.params['random_seed'] = original_seed
-            if len(valid_mvt) > 1:
-                pass
-            elif len(valid_mvt) == 1:
-                lower_error = 0.0 # Cannot calculate std dev from one point
-            else:
-                # If all runs had a zero error, report MVT as 0
-                median_mvt = 0.0
-                lower_error = 0.0
-
-            # 3. Run the simulation (unchanged)
-            # 4. Gather results into a temporary dictionary
-            result_data = {
-                'pulse': pulse_shape,
-                'total_sim': int(NN),
-                'failed_sim': int(NN - len(valid_mvt)),
-                'peak_amplitude': self.params.get('peak_amplitude'),
-                'background_level': self.params.get('background_level'),
-                'trigger_number': self.params.get('trigger_number'),
-                'det': self.params.get('det'),
-                'angle': self.params.get('angle'),
-                'mvt_ms': round(float(median_mvt), 3),
-                'mvt_error_ms': round(float(lower_error), 3),
-                'src_max': safe_round(valid_src_max.mean() if len(valid_src_max) > 0 else -100),
-                'back_avg': safe_round(valid_back_avg.mean() if len(valid_back_avg) > 0 else -100),
-                'SNR': safe_round(valid_SNR.mean() if len(valid_SNR) > 0 else -100),
-            }
-            result_data.update(pulse_params)
-
-        except Exception as e:
-            logging.error(f"Error processing {self.sim_name}: {e}", exc_info=True)
-            result_data = {
-                'pulse': self.params.get('pulse_shape', 'unknown'),
-                'total_sim': int(NN),
-                'failed_sim': int(NN - len(valid_mvt)),
-                'peak_amplitude': self.params.get('peak_amplitude'),
-                'background_level': self.params.get('background_level'),
-                'trigger_number': self.params.get('trigger_number'),
-                'det': self.params.get('det'),
-                'angle': self.params.get('angle'),
-                'mvt_ms': -100, 'mvt_error_ms': -100, 'src_max': -100,
-                'back_avg': -100, 'SNR': -100,
-            }
-
-        # --- FINAL STEP: Create the standardized dictionary for output ---
-        final_dict = {}
-        
-
-        for key in standard_keys:
-            final_dict[key] = result_data.get(key)
-        
-        # Add all possible pulse parameter keys, using the default value if a key is not in this run's result_data
-        for key in ALL_PULSE_PARAMS:
-            final_dict[key] = result_data.get(key, DEFAULT_PARAM_VALUE)
-
-        return final_dict
 
 
 def _parse_param(param_config):
@@ -646,7 +446,7 @@ def create_plot_template(output_csv_path, output_dir):
         with open(template_path, 'w') as f:
             yaml.dump(plot_config, f, default_flow_style=False, sort_keys=False)
 
-        logging.info(f"Plotting template created at: {template_path}")
+        logging.info(f"Plotting template created at: \n{template_path}")
 
     except Exception as e:
         logging.warning(f"Could not create plotting template. Error: {e}")
@@ -727,11 +527,12 @@ def generate_sim_tasks_from_config(config_path, output_path):
 
 
 # ========= MAIN EXECUTION BLOCK (Unchanged) =========
-def main():
+def main_old():
     now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     output_dir = f'GBM_SIM'#_{now}'
     script_dir = os.path.dirname(os.path.abspath(__file__))
     output_path = os.path.join(script_dir, output_dir)
+    shutil.rmtree(output_path, ignore_errors=True)
     os.makedirs(output_path, exist_ok=True)
     
     log_file = os.path.join(output_path, 'run.log')
@@ -749,35 +550,6 @@ def main():
 
     logging.info(f"Generated {len(tasks)} simulation tasks. Starting parallel processing with {MAX_WORKERS} workers.")
      # 1. Create a single list to hold all results
-    """
-    all_results = [] 
-
-    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = {executor.submit(run_simulation, task) for task in tasks}
-        for future in tqdm(as_completed(futures), total=len(tasks), desc="Processing Simulations"):
-            try:
-                result = future.result()
-                if result:
-                    # 2. Append each result to the master list
-                    all_results.append(result) 
-            except Exception as e:
-                logging.error(f"A task failed in the main loop: {e}")
-
-    # 3. After the loop, write the entire list to a CSV file at once
-    if all_results:
-        output_csv_path = os.path.join(output_path, f"{output_dir}_results.csv")
-        df_final = pd.DataFrame(all_results)
-        df_final.to_csv(output_csv_path, index=False)
-        
-        # Plotting template generation remains the same
-        if os.path.exists(output_csv_path):
-            create_plot_template(output_csv_path, output_path)
-
-        logging.info(f"All simulations processed! Results saved to:\n{output_csv_path}")
-    else:
-        logging.warning("No results were generated from the simulations.")
-
-    """
     output_csv_path = os.path.join(output_path, f"{output_dir}_results.csv")
     results_batch = []
     header_written = False
@@ -806,6 +578,83 @@ def main():
 
     logging.info(f"All simulations processed! Results saved to:\n{output_csv_path}")
 
+# ========= MAIN EXECUTION BLOCK (MODIFIED FOR SEPARATE OUTPUTS) =========
+def main():
+    now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    output_dir = f'SIM_OUTPUT'#_{now}' # More generic name
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    output_path = os.path.join(script_dir, output_dir)
+    shutil.rmtree(output_path, ignore_errors=True)
+    os.makedirs(output_path, exist_ok=True)
+
+    log_file = os.path.join(output_path, 'run.log')
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s', handlers=[logging.FileHandler(log_file), logging.StreamHandler()])
+
+    try:
+        tasks = list(generate_sim_tasks_from_config(SIM_CONFIG_FILE, output_path))
+    except Exception as e:
+        logging.error(f"Failed to generate simulation tasks. Check YAML format. Error: {e}", exc_info=True)
+        return
+
+    if not tasks:
+        logging.warning("No simulation tasks were generated. Check 'enabled' flags in config file.")
+        return
+
+    logging.info(f"Generated {len(tasks)} simulation tasks. Starting parallel processing with {MAX_WORKERS} workers.")
+
+    # --- Dictionaries to manage separate files and batches ---
+    output_csv_paths = {
+        'GBM': os.path.join(output_path, "gbm_summary_results.csv"),
+        'Function': os.path.join(output_path, "function_summary_results.csv"),
+    }
+    results_batches = {
+        'GBM': [],
+        'Function': [],
+    }
+    headers_written = {
+        'GBM': False,
+        'Function': False,
+    }
+
+    with ProcessPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = {executor.submit(run_simulation, task) for task in tasks}
+        for future in tqdm(as_completed(futures), total=len(tasks), desc="Processing Simulations"):
+            try:
+                result = future.result()
+                if not result:
+                    continue
+
+                # --- Route the result to the correct batch based on its 'type' ---
+                sim_type = result.get('type')
+                if sim_type in results_batches:
+                    results_batches[sim_type].append(result)
+                else:
+                    logging.warning(f"Received result with unknown type: {sim_type}")
+
+                # --- Loop through each type to check for batch writing ---
+                for s_type, batch in results_batches.items():
+                    if len(batch) >= BATCH_WRITE_SIZE:
+                        df_batch = pd.DataFrame(batch)
+                        df_batch.to_csv(output_csv_paths[s_type], mode='a', index=False, header=not headers_written[s_type])
+                        headers_written[s_type] = True
+                        results_batches[s_type] = [] # Clear the batch
+
+            except Exception as e:
+                logging.error(f"A task failed in the main loop: {e}", exc_info=True)
+
+    # --- Final write for any remaining results in all batches ---
+    for s_type, batch in results_batches.items():
+        if batch:
+            df_batch = pd.DataFrame(batch)
+            df_batch.to_csv(output_csv_paths[s_type], mode='a', index=False, header=not headers_written[s_type])
+
+    # --- Generate a template for each output file that was created ---
+    for s_type, path in output_csv_paths.items():
+        if os.path.exists(path):
+            create_plot_template(path, output_path)
+            logging.info(f"'{s_type}' simulations processed! Results saved to:\n{path}")
+
+    logging.info("All simulations complete.")
 
 
 if __name__ == '__main__':
