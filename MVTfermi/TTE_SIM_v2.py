@@ -42,6 +42,8 @@ from haar_power_mod import haar_power_mod
 from sim_functions import constant2, gaussian2, triangular, fred, constant, norris, gaussian, lognormal
 # Suppress a common FITS warning
 import concurrent.futures
+from astropy.io.fits.verify import VerifyWarning
+warnings.simplefilter('ignore', category=VerifyWarning)
 
 #warnings.simplefilter('ignore', VerifyWarning)
 
@@ -53,6 +55,70 @@ gauss_params = (.5, 0.0, 0.1)
 
 
 from typing import Dict, Any, Tuple, Callable
+
+
+def calculate_adaptive_simulation_params(pulse_shape: str, params: Dict) -> Dict:
+    """
+    Calculates optimal t_start, t_stop, and grid_resolution based on pulse parameters.
+    """
+    t_start, t_stop, grid_res = None, None, None
+    padding = 10.0  # Seconds of padding before and after the pulse
+
+    if pulse_shape == 'gaussian':
+        sigma = params['sigma']
+        center = params['center_time']
+        grid_res = sigma / 10.0
+        # The pulse is significant within ~5-sigma of the center
+        t_start = center - 5 * sigma - padding * grid_res * 20
+        t_stop = center + 5 * sigma + padding * grid_res * 20
+        # Rule of Thumb: Grid must be ~10x finer than the narrowest feature
+
+    elif pulse_shape == 'lognormal':
+        sigma = params['sigma']
+        center = params['center_time']
+        timescale = min(center, sigma * center)
+        grid_res = timescale / 10.0
+        # Use a similar 5-sigma rule, but in log-space
+        t_start = center * np.exp(-5 * sigma - padding * grid_res * 20)
+        t_stop = center * np.exp(5 * sigma + padding * grid_res * 20)
+        # A rough characteristic timescale for lognormal
+        
+    elif pulse_shape in ['norris', 'fred']:
+        t_rise = params['rise_time']
+        t_decay = params['decay_time']
+        start = params['start_time']
+        # For FRED/Norris, the rise time is the narrowest feature
+        grid_res = t_rise / 10.0
+        # Determine the peak time to set a reasonable end point
+        # A simple approximation for the peak time
+        peak_time_approx = start + t_rise * 2 
+        # End the simulation after the pulse has decayed significantly (~10x decay time)
+        t_start = start - padding * grid_res * 20
+        t_stop = peak_time_approx + 10 * t_decay + padding * grid_res * 20
+
+    elif pulse_shape == 'triangular':
+        width = params['width']
+        center = params['center_time']
+        peak_ratio = params['peak_time_ratio']
+        rise_duration = width * peak_ratio
+        fall_duration = width * (1.0 - peak_ratio)
+        grid_res = min(rise_duration, fall_duration) / 10.0
+        # Start and stop are explicitly defined by the parameters
+        t_start = center - (width * peak_ratio) - padding * grid_res * 20
+        #t_stop = t_start + width + padding + (padding*2)
+        t_stop = t_start + width + padding * grid_res * 20
+        # Narrowest feature is the shorter of the rise or fall time
+
+    # --- Safety Net ---
+    # Ensure grid resolution is within reasonable bounds to prevent memory errors
+    # or inaccurate simulations.
+    if grid_res is not None:
+        grid_res = np.clip(grid_res, a_min=1e-6, a_max=0.001) # e.g., 1µs to 1ms
+    else:
+        # Fallback for unknown shapes
+        t_start, t_stop, grid_res = -5.0, 5.0, 0.0001
+        
+    return {'t_start': t_start, 't_stop': t_stop, 'grid_resolution': grid_res}
 
 def _format_params_for_annotation(func: Callable, func_par: Tuple) -> str:
     """Formats function and parameters into a concise string for a plot title."""
@@ -394,6 +460,7 @@ def gen_GBM_pulse(trigger_number,
                   plot_flag=False):
     energy_range_nai = (en_lo, en_hi)
     band_params = (0.1, 300.0, -1.0, -2.5)
+    grid_resolution = bin_width / 10.0
     #tte = GbmTte.open('glg_tte_n6_bn250612519_v00.fit')
     folder_path = os.path.join(os.getcwd(), 'data_rmf')
 
@@ -433,13 +500,13 @@ def gen_GBM_pulse(trigger_number,
 
     
     # source simulation
-    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, deadtime=1e-6, rng=np.random.default_rng(random_seed))
+    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, sample_period=grid_resolution, deadtime=1e-6, rng=np.random.default_rng(random_seed))
     
     tte_src = tte_sim.to_tte(t_start, t_stop)
     
     # background simulation
     #tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', quadratic, quadratic_params)
-    tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, deadtime=1e-6, rng=np.random.default_rng(random_seed))
+    tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, sample_period=grid_resolution, deadtime=1e-6, rng=np.random.default_rng(random_seed))
     tte_bkgd = tte_sim.to_tte(t_start, t_stop)
     
     # merge the background and source
@@ -522,6 +589,163 @@ def gen_GBM_pulse(trigger_number,
     phaii = phaii_hi.slice_energy(energy_range_nai)
     data = phaii.to_lightcurve()
     return data.centroids, data.counts, int(np.round(src_max)), int(np.round(back_avg)), int(np.round(SNR))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def generate_function_events(
+    #event_file_path: Path,
+    func: Callable,
+    func_par: Tuple,
+    back_func: Callable,
+    back_func_par: Tuple,
+    params: Dict[str, Any]
+):
+    """
+    Runs a full TTE simulation, probabilistically splits the events into
+    source and background, and saves them to a compressed .npz file.
+    """
+    # Unpack necessary parameters from the dictionary
+    t_start = params['t_start']
+    t_stop = params['t_stop']
+    random_seed = params['random_seed']
+    source_base_rate = params.get('source_base_rate', 1000.0)
+    background_base_rate = params.get('background_base_rate', 1000.0)
+    grid_resolution = params.get('grid_resolution', 0.0001) # Use a fixed, fine resolution for the integral
+
+    np.random.seed(random_seed)
+
+    # 1. Simulate the total event stream
+    def total_rate_func(t):
+        source_rate = func(t, *func_par) * source_base_rate if func else 0
+        background_rate = back_func(t, *back_func_par) * background_base_rate if back_func else 0
+        return source_rate + background_rate
+
+    grid_times = np.arange(t_start, t_stop, grid_resolution)
+    rate_on_grid = total_rate_func(grid_times)
+    cumulative_counts = np.cumsum(rate_on_grid) * grid_resolution
+    total_expected_counts = cumulative_counts[-1] if len(cumulative_counts) > 0 else 0
+    num_events = np.random.poisson(total_expected_counts)
+    random_counts = np.random.uniform(0, total_expected_counts, num_events)
+    total_event_times = np.interp(random_counts, cumulative_counts, grid_times)
+
+    # 2. Probabilistically split events into source and background
+    source_rate_at_events = func(total_event_times, *func_par) * source_base_rate
+    background_rate_at_events = back_func(total_event_times, *back_func_par) * background_base_rate
+    total_rate_at_events = source_rate_at_events + background_rate_at_events
+
+    p_source = np.divide(source_rate_at_events, total_rate_at_events, 
+                         out=np.zeros_like(total_rate_at_events), 
+                         where=total_rate_at_events > 0)
+    
+    is_source_event = np.random.rand(num_events) < p_source
+    
+    source_event_times = np.sort(total_event_times[is_source_event])
+    background_event_times = np.sort(total_event_times[~is_source_event])
+
+    # 3. Save the classified events to a single .npz file
+    """
+    np.savez_compressed(
+        event_file_path,
+        source_events=source_event_times,
+        background_events=background_event_times,
+        params=params # Save the simulation parameters for later reference
+    )
+    """
+    return source_event_times, background_event_times, params
+
+
+
+def generate_gbm_events(
+        event_file_path: Path,
+        func: Callable,
+        func_par: Tuple,
+        back_func: Callable,
+        back_func_par: Tuple,
+        back_flag: True,
+        params: Dict[str, Any]):
+
+    det = params['det']
+    trigger_number = params['trigger_number']
+    angle = params['angle']
+    en_lo = params['en_lo']
+    en_hi = params['en_hi']
+    t_start = params['t_start']
+    t_stop = params['t_stop']
+    random_seed = params['random_seed']
+    grid_resolution = params.get('grid_resolution', 0.0001) # Use a fixed, fine
+
+    energy_range_nai = (en_lo, en_hi)
+    bkgd_times = [(-20.0, -5.0), (75.0, 200.0)]
+
+    # Fixed spectral Model
+    band_params = (0.1, 300.0, -1.0, -2.5)
+
+    #tte = GbmTte.open('glg_tte_n6_bn250612519_v00.fit')
+    folder_path = os.path.join(os.getcwd(), 'data_rmf')
+
+    tte_pattern = f'{folder_path}/glg_tte_n{det}_bn{trigger_number}_v*.fit'
+    tte_files = glob.glob(tte_pattern)
+
+    if not tte_files:
+        raise FileNotFoundError(f"No TTE file found matching pattern: {tte_pattern}")
+    tte_file = tte_files[0]  # Assuming only one file/version per det/trigger_number
+
+    # Find the RSP2 file (e.g., glg_cspec_n3_bn230307053_v03.rsp2)
+    rsp2_pattern = f'{folder_path}/glg_cspec_n{det}_bn{trigger_number}_v*.rsp2'
+    rsp2_files = glob.glob(rsp2_pattern)
+
+    if not rsp2_files:
+        raise FileNotFoundError(f"No RSP2 file found matching pattern: {rsp2_pattern}")
+    rsp2_file = rsp2_files[0]  # Assuming only one file/version per det/trigger_number
+
+    # Open the files
+    tte = GbmTte.open(tte_file)
+    rsp2 = GbmRsp2.open(rsp2_file)
+
+    # bin to 1.024 s resolution, reference time is trigger time
+    phaii = tte.to_phaii(bin_by_time, 1.024, time_ref=0.0)
+    bkgd_times = bkgd_times
+    backfitter = BackgroundFitter.from_phaii(phaii, Polynomial, time_ranges=bkgd_times)
+    
+    backfitter.fit(order=1)
+    bkgd = backfitter.interpolate_bins(phaii.data.tstart, phaii.data.tstop)
+    
+    select_time = (t_start, t_stop)
+    # the background model integrated over the source selection time
+    spec_bkgd = bkgd.integrate_time(*select_time)
+    rsp = rsp2.extract_drm(atime=np.average(select_time))
+    tte_demo = tte.slice_time([-50,-49.99])
+    
+    # Use the .name property to get the descriptive base filename
+    base_filename = event_file_path.name
+
+    # source simulation
+    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, deadtime=1e-6, sample_period=grid_resolution, rng=np.random.default_rng(random_seed))
+    tte_src = tte_sim.to_tte(t_start, t_stop)
+    tte_gbm_src = GbmTte.merge([tte_demo, tte_src])
+    # Construct the new FITS filenames
+    src_filename = f"{base_filename}_src.fits"
+    # Save the files to the correct directory with the new names
+    tte_gbm_src.write(filename=src_filename, directory=event_file_path.parent, overwrite=True)
+
+    if back_flag:
+        # background simulation
+        tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, deadtime=1e-6, sample_period=grid_resolution, rng=np.random.default_rng(random_seed))
+        tte_bkgd = tte_sim.to_tte(t_start, t_stop)
+        tte_gbm_bkgd = GbmTte.merge([tte_demo, tte_bkgd])
+        bkgd_filename = f"{base_filename}_bkgd.fits"
+        tte_gbm_bkgd.write(filename=bkgd_filename, directory=event_file_path.parent, overwrite=True)
 
 
 

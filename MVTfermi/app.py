@@ -11,7 +11,8 @@ uploaded_file = st.file_uploader("Choose a results CSV file")
 if uploaded_file is not None:
     df = pd.read_csv(uploaded_file)
     initial_rows = len(df)
-    df = df[~(df == -100).any(axis=1)].copy()
+    #df = df[~(df == -100).any(axis=1)].copy()
+    df = df[~(df.drop(columns=['SNR']) == -100).any(axis=1)].copy()
     dropped_rows = initial_rows - len(df)
     if dropped_rows > 0:
         st.info(f"Removed {dropped_rows} rows containing '-100' (failed simulations).")

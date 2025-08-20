@@ -1,0 +1,127 @@
+# ===================================================================
+#  1. PROJECT SETTINGS
+# ===================================================================
+# Global settings for the entire project, read by all scripts.
+project_settings:
+  # The base directory for all generated event files.
+  data_path: '001_DATA'
+  results_path: '01_ANALYSIS_RESULTS'
+
+# ===================================================================
+#  2. PULSE DEFINITIONS (The "Library")
+# ===================================================================
+# Define all known pulse shapes and their specific parameters here ONCE.
+# Campaigns below will refer to these by name.
+pulse_definitions:
+  gaussian:
+    parameters:
+      sigma: [0.01] # 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    constants:
+      center_time: 0.0
+
+  triangular:
+    parameters:
+      width: [ 0.05] # 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    constants:
+      center_time: 0.0
+      peak_time_ratio: 0.5
+
+  norris:
+    parameters:
+      rise_time: [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+      decay_time: [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
+    constants:
+      start_time: 0.0
+  
+  fred:
+    parameters:
+      # NOTE: Combined values from both of your original campaigns
+      rise_time: [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+      decay_time: [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
+    constants:
+      start_time: 0.0
+
+  lognormal:
+    parameters:
+      sigma: [0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+      center_time: [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0]
+
+# ===================================================================
+#  3. SIMULATION CAMPAIGNS
+# ===================================================================
+# Each campaign defines a set of simulations to generate.
+# This section is read by 'generate_events.py'.
+
+
+# ______________________________________
+#  GBM
+# ______________________________________
+simulation_campaigns:
+- name: GBM_Pulse_Simulation
+  type: gbm
+  enabled: false
+
+  # Parameters that vary for this entire campaign
+  parameters:
+    trigger_set_file: 'triggers1.csv'
+    peak_amplitude: [50] # [0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0]
+
+  # Constants for this entire campaign
+  constants:
+    background_level: 1000
+    random_seed: 37
+    total_sim: 35
+    'en_lo': 8.0
+    'en_hi': 900.0
+    'gbm_data_path': 'data_rmf'
+
+
+  # List the pulse shapes from the library you want to run in this campaign.
+  pulses_to_run:
+    - gaussian
+    # - triangular
+    # - norris
+    # - fred
+    # - lognormal
+# ______________________________________
+#  Functions
+# ______________________________________
+
+- name: FUNCTION_Pulse_Simulation
+  type: function
+  enabled: true
+
+  parameters:
+    peak_amplitude: [1, 2, 3, 4, 5, 10, 50, 100, 500]
+
+  constants:
+    trigger_number: 9999999999
+    det: x
+    angle: 0
+    t_start: 5.0
+    t_stop: 5.0
+    background_level: 1
+    random_seed: 37
+    total_sim: 300
+
+  # This campaign will only run the gaussian and norris simulations.
+  pulses_to_run:
+    # - gaussian
+    - triangular  # Example of disabling a pulse for this campaign
+    # - norris
+    # - fred
+    # - lognormal
+
+# ===================================================================
+#  4. ANALYSIS SETTINGS
+# ===================================================================
+# This section is read by your 'analyze.py' script.
+analysis_settings:
+  # The analysis script will test every event file against these bin widths
+  bin_widths_to_analyze_ms: [0.1, 1.0]
+
+  mvt_analysis:
+    haar_afactor: -1.0
+  
+  snr_analysis:
+    search_timescales: [0.016, 0.032, 0.064, 0.128, 0.256]

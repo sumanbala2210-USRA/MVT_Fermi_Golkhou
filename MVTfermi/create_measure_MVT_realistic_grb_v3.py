@@ -23,14 +23,14 @@ from TTE_SIM_v2 import generate_pulse_function, gen_pulse_advanced, constant  # 
 # PART 1: GLOBAL PARAMETERS AND CONSTANTS
 # =======================================================================
 # --- Simulation Parameters ---
-simulation_no_of_iterations = 300  # Number of Monte Carlo iterations for MVT calculation 
+simulation_no_of_iterations = 30  # Number of Monte Carlo iterations for MVT calculation 
 # simulation_no_of_iterations does not matter for 'poisson' type, keep it low ~5-10.
 sim_type = 'photon'  # 'photon' for photon events, 'poisson' for direct Poisson binning
 #sim_type = 'poisson'  # 'photon' for photon events, 'poisson' for direct Poisson binning
 random_seed = 30  # Seed for reproducibility
 overall_amp = 2000.0
-bin_width = 0.0001
-duration = 3.5 # 15 for max
+bin_width = 0.000001
+duration = 0.3 # 15 for max
 back = 1.0  # Background level, 0 or 1 to disable or enable background
 back_level = 1000
 pos_fact = 1.0  # Position factor for Gaussian pulse, can be adjusted
@@ -162,6 +162,7 @@ def _run_full_simulation_worker(params: Dict[str, Any]) -> Tuple[float, float]:
         # We pass the parameters from the dictionary directly.
         #if params['n_iter'] = params['iteration']
         output_file_path = params['output_dir'] / f"lc_{round(params['factor'], 3)}.png"
+        """
         _, counts, _, _, _ = gen_pulse_advanced(
             t_start=0.0,
             t_stop=params['duration'],
@@ -178,6 +179,25 @@ def _run_full_simulation_worker(params: Dict[str, Any]) -> Tuple[float, float]:
             random_seed=worker_seed,
             title=f"lc {round(params['factor'], 3)}"
         )
+        """
+        output_file_path = params['output_dir'] / f"lc_{round(params['factor'], 3)}.png"
+        _, counts, _, _, _ = gen_pulse_advanced(
+            t_start=0.0,
+            t_stop=params['duration'],
+            func=generate_pulse_function,
+            func_par=(params,),  # The entire params dict is the parameter for our rate function
+            back_func=constant,      # Background is already included in generate_rate_function
+            back_func_par=(params['background_level'],),  # Background level as a tuple
+            bin_width=params['bin_width'],
+            source_base_rate=1.0,      # Rate is absolute in generate_rate_function
+            background_base_rate=1.0,  # Rate is absolute in generate_rate_function
+            plot_flag=params.get('plot_flag', False),  # Control plotting
+            fig_name=output_file_path,             # No plotting inside the worker
+            #plot_rebin_factor= 64*1000/params['bin_width'],
+            random_seed=worker_seed,
+            title=f"lc {round(params['factor'], 3)}"
+        )
+
     else:  # 'poisson'
         # Use the direct binning method with the unique worker seed
         _, counts, _ = create_lightcurve_direct_poisson(params, random_seed=worker_seed)
@@ -262,10 +282,10 @@ def main():
     output_dir.mkdir(exist_ok=True)
     print(f"All output will be saved in: {output_dir}")
     all_runs_summary = []
-    values1 = np.arange(0.1, 1.0, .2)
-    values2 = np.arange(1.0, 6.0, 1)
-    values = np.concatenate((values1, values2))
-    values = [.1, .5, 1.0]
+    #values1 = np.arange(1, 10.0, 2)
+    values2 = np.arange(10, 100, 10)
+    #values = np.concatenate((values1, values2))
+    values = [100, 70, 50, 20]
     for fact in values:
         # --- Define the single set of physical parameters for the GRB model ---
         sharp_pulse_params = (overall_amp * fact, 2.8 * pos_fact, 0.01)
@@ -294,7 +314,7 @@ def main():
             #('fred', (0.14*overall_amp, 15.5, 0.2, 0.8)),
             ('fred', (0.3*overall_amp,  9.0, 2.0, 1.0)),    # Broad base component
 
-            ('gaussian', (overall_amp*fact,  2.8*pos_fact, 0.01)),
+            ('gaussian', (overall_amp*fact,  0.2*pos_fact, 0.0001)),
             ('gaussian', (0.44*overall_amp, 6.8, 0.15)),
             ('gaussian', (0.38*overall_amp, 7.5, 0.2)),
             ('gaussian', (0.2*overall_amp,  10.5, 0.9)),

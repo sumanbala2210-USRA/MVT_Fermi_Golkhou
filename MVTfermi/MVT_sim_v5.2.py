@@ -152,7 +152,7 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
         DEFAULT_PARAM_VALUE = 999
         NN= self.params.get('total_sim', 30)
         original_seed = self.params.get('random_seed')
-        standard_keys = ['type', 'pulse', 'total_sim', 'failed_sim', 'peak_amplitude', 'background_level', 'trigger_number', 'det', 'angle', 'mvt_ms', 'mvt_error_ms', 'src_max', 'back_avg', 'SNR']
+        standard_keys = ['type', 'pulse', 'total_sim', 'failed_sim', 'peak_amplitude', 'background_level', 'bin_width', 'trigger_number', 'det', 'angle', 'mvt_ms', 'mvt_error_ms', 'src_max', 'back_avg', 'SNR']
         if self.is_gbm:
             sim_type = 'GBM'
         else:
@@ -226,6 +226,13 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
                 try:
                     # --- (gbm_args setup is identical) ---
                     gbm_args = {k: self.params.get(k) for k in ['trigger_number', 'det', 'angle', 't_start', 't_stop', 'bkgd_times', 'en_lo', 'en_hi', 'bin_width']}
+
+                    if pulse_shape == 'gaussian':
+                        gbm_args['t_start'] = self.params['center_time'] - self.params.get('sigma')*10
+                        gbm_args['t_stop'] = self.params['center_time'] + self.params.get('sigma')*10
+                        #if self.params.get('sigma') > self.params.get('bin_width'):
+                        #    pass
+
                     gbm_args['random_seed'] = iteration_seed
                     gbm_args = {k: v for k, v in gbm_args.items() if v is not None}
                     if not self.is_gbm:
@@ -339,6 +346,7 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
                 'failed_sim': int(NN - len(valid_mvt)),
                 'peak_amplitude': self.params.get('peak_amplitude'),
                 'background_level': self.params.get('background_level'),
+                'bin_width': self.params.get('bin_width'),
                 'trigger_number': self.params.get('trigger_number'),
                 'det': self.params.get('det'),
                 'angle': self.params.get('angle'),
@@ -359,6 +367,7 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
                 'failed_sim': int(NN - len(valid_mvt)),
                 'peak_amplitude': self.params.get('peak_amplitude'),
                 'background_level': self.params.get('background_level'),
+                'bin_width': self.params.get('bin_width'),
                 'trigger_number': self.params.get('trigger_number'),
                 'det': self.params.get('det'),
                 'angle': self.params.get('angle'),

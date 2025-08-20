@@ -484,9 +484,11 @@ def plot_plotly(
     """
     # 1. Conditionally remove zero-error points based on the UI toggle
     if not show_lower_limits:
-        plot_df = df[df[y_err_col] > 0].copy()
+        plot_df = df[(df[y_err_col] > 0) & (df['failed_run'] < df['total_sim'].max()*0.9)].copy()
+        #plot_df = df[df['failed_sim'] < df['total_sim'].max()*0.1].copy()
     else:
-        plot_df = df[df[y_err_col] >= 0].copy()
+        #plot_df = df[df[y_err_col] >= 0].copy()
+        plot_df = df#[df['failed_sim'] < 10].copy()
 
     # 2. Apply user-defined filters
     if filters:
