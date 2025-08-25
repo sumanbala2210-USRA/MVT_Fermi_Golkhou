@@ -17,7 +17,29 @@ import smtplib
 import itertools
 import pandas as pd
 from typing import Dict, Any
+from email.message import EmailMessage
 # ========= Import necessary libraries =========
+
+
+GMAIL_FILE = 'config_mail.yaml'
+
+def send_email(input='!!'):
+    msg = EmailMessage()
+    msg['Subject'] = 'Python Script Completed'
+    msg['From'] = '2210sumaanbala@gmail.com'
+    msg['To'] = 'sumanbala2210@gmail.com'
+    msg.set_content(f'Hey, your script has finished running!\n{input}')
+
+    with open(GMAIL_FILE, 'r') as f:
+        config_mail = yaml.safe_load(f)
+
+    # Use your Gmail App Password here
+    gmail_user = config_mail['gmail_user']
+    gmail_password = config_mail['gmail_password']
+
+    with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        smtp.login(gmail_user, gmail_password)
+        smtp.send_message(msg)
 
 from TTE_SIM_v2 import generate_gbm_events, generate_function_events, gaussian2, triangular, constant, norris, fred, lognormal, print_nested_dict#complex_pulse_example
 # Assume your original simulation and helper functions are in a library

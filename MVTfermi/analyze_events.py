@@ -20,7 +20,7 @@ from tqdm import tqdm
 from typing import Dict, Any, List
 import matplotlib.pyplot as plt
 
-from SIM_lib import _parse_param, e_n, _create_param_directory_name, PULSE_MODEL_MAP, RELEVANT_NAMING_KEYS, SIMULATION_REGISTRY
+from SIM_lib import _parse_param, e_n, _create_param_directory_name, PULSE_MODEL_MAP, RELEVANT_NAMING_KEYS, SIMULATION_REGISTRY, send_email
 
 
 from TTE_SIM_v2 import GBM_MVT_analysis, Function_MVT_analysis, print_nested_dict, check_param_consistency, flatten_dict
@@ -360,6 +360,8 @@ def main():
         logging.info(f"✅ Analysis complete! Summary saved to:\n{final_results_csv_path}")
     else:
         logging.info("Analysis complete, but no results were generated.")
+
+    #send_email(f"Analysis complete! Summary saved to:\n{final_results_csv_path}")
 
 if __name__ == '__main__':
     main()
