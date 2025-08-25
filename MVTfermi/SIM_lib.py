@@ -19,11 +19,60 @@ import pandas as pd
 from typing import Dict, Any
 # ========= Import necessary libraries =========
 
-from TTE_SIM_v2 import generate_gbm_events, generate_function_events, gaussian2, triangular, constant, norris, fred, lognormal #complex_pulse_example
+from TTE_SIM_v2 import generate_gbm_events, generate_function_events, gaussian2, triangular, constant, norris, fred, lognormal, print_nested_dict#complex_pulse_example
 # Assume your original simulation and helper functions are in a library
 
 
 # ========= USER SETTINGS =========
+
+def write_yaml(par_dictionary, yaml_file, comments=[]):
+    """ 
+    Write YAML file in a more compact format than yaml.safe_dump().
+
+    Args:
+        par_dictionary (dict):      Dictionary of values to write.
+        yaml_file (str):            Path of the output file to write.
+        comments (list):            Optional list of comments to include in the YAML file.
+    """
+    # Convert the dictionary to a YAML string
+    yaml_content = format_par_as_yaml(par_dictionary, '')
+    # Open the file for writing
+    with open(yaml_file, 'w') as f:
+        f.write(yaml_content)
+
+
+
+def format_par_as_yaml(dict_data, dict_name, count_dict=0, indent=0):
+    """
+    Formats a dictionary into a YAML-like string.
+    """
+    yaml_str = ''
+    
+    # Add the dictionary name with correct indentation
+    if dict_name:
+        yaml_str += ' ' * indent + dict_name + ':\n'
+        indent += 4  # Increase indentation for child elements
+
+    # Convert dictionary items to a list for iteration
+    items = list(dict_data.items())
+    count_dict += 1  # Increase depth level
+
+    for i, (key, value) in enumerate(items):
+        if isinstance(value, dict):
+            # Recursive call, passing increased indent
+            yaml_str += format_par_as_yaml(value, key, count_dict=count_dict, indent=indent)
+        else:
+            # Format the value based on its type
+            if isinstance(value, str):
+                value_str = f"'{value}'"
+            elif isinstance(value, list):
+                value_str = yaml.dump(value, default_flow_style=True).strip()
+            else:
+                value_str = str(value)
+            
+            yaml_str += f"{' ' * indent}{key}: {value_str}\n"
+
+    return yaml_str
 
 
 # ========= GENERIC SIMULATION FRAMEWORK =========

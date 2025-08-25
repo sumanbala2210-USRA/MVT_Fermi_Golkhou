@@ -22,9 +22,9 @@ from typing import Dict, Any
 # ========= Import necessary libraries =========
 import itertools
 from email.message import EmailMessage
-from SIM_lib import _parse_param, e_n, _create_param_directory_name, PULSE_MODEL_MAP, RELEVANT_NAMING_KEYS, SIMULATION_REGISTRY, _iterate_parameter_sets
+from SIM_lib import _parse_param, e_n, _create_param_directory_name, PULSE_MODEL_MAP, RELEVANT_NAMING_KEYS, SIMULATION_REGISTRY, write_yaml
 
-from TTE_SIM_v2 import generate_gbm_events, generate_function_events, gaussian2, triangular, constant, norris, fred, lognormal, calculate_adaptive_simulation_params #complex_pulse_example
+from TTE_SIM_v2 import generate_gbm_events, generate_function_events, constant, calculate_adaptive_simulation_params, create_final_plot, create_final_gbm_plot #complex_pulse_example
 # Assume your original simulation and helper functions are in a library
 
 
@@ -38,10 +38,11 @@ MAIL_FILE = 'config_mail.yaml'
 
 class BaseSimulationTask:
     """A base class for simulation tasks."""
-    def __init__(self, output_dir, variable_params, constant_params):
+    def __init__(self, output_dir, variable_params, constant_params, analysis_settings):
         self.output_dir = output_dir
         self.params = {**variable_params, **constant_params}
         self.variable_params = variable_params
+        self.analysis_settings = analysis_settings
 
         if 'trigger_set' in self.params:
             trigger_data = self.params.pop('trigger_set')
@@ -72,7 +73,8 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
         # Calculate adaptive simulation window and update params
         adaptive_params = calculate_adaptive_simulation_params(pulse_shape, self.params)
         self.params.update(adaptive_params)
-        
+        #print("Tstart:", self.params.get('t_start'), "Tstop:", self.params.get('t_stop'))
+
         # Special handling for triangular pulse start/stop times
         if pulse_shape == 'triangular':
             tpeak, width, peak_ratio = self.params['center_time'], self.params['width'], self.params['peak_time_ratio']
@@ -87,11 +89,15 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
 
         # --- 2. Execute Logic Based on Simulation Type ---
         details_path = self.output_dir / sim_type / pulse_shape / param_dir_name
+        # --- FUNCTION LOGIC: Generate/Append to a combined .npz file ---
+        details_path.mkdir(parents=True, exist_ok=True)
+        write_yaml(self.params, details_path / f"{param_dir_name}.yaml")
+
         if self.is_gbm:
             # --- GBM LOGIC: Generate individual FITS files ---
-            
-            #print(f"GEN_SCRIPT --- Creating directory: {details_path}") # <-- ADD THIS LINE
-            details_path.mkdir(parents=True, exist_ok=True)
+            base_par_path = details_path / f"{param_dir_name}"
+            #np.savez_compressed(base_par_path, params=self.params)
+
 
             for i in range(NN_target):
                 iteration_seed = original_seed + i
@@ -99,65 +105,110 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
 
                 # Check for individual files (this is the GBM caching strategy)
                 src_filename = f"{param_dir_name}_r_seed_{iteration_seed}_src.fits"
-                event_file_path = details_path / src_filename # Check for just one of the pair
-                
-                if event_file_path.exists():
+                src_file_path = details_path / src_filename # Check for just one of the pair
+
+                if src_file_path.exists():
                     continue
                 
                 try:
                     # Pass a base path; the gbm function will add _src.fits and _bkgd.fits
                     base_event_path = details_path / f"{param_dir_name}_r_seed_{iteration_seed}"
-                    self.simulation_function(
+                    src_event_file, back_event_file = self.simulation_function(
                         event_file_path=base_event_path,
                         func=func_to_use, func_par=func_par,
                         back_func=constant, back_func_par=(self.params['background_level'],),
                         params=sim_params
                     )
+                    if i == NN_target - 1:
+                        try:
+                            create_final_gbm_plot(
+                                src_event_file,
+                                back_event_file,
+                                model_info={
+                                    'func': func_to_use,
+                                    'func_par': func_par,
+                                    'base_params': self.params,
+                                    'snr_analysis': self.analysis_settings['snr_timescales']
+                                },
+                                output_info={
+                                    'file_path': details_path,
+                                    'file_name': param_dir_name
+                                }
+                            )
+                        except Exception as e:
+                            logging.error(f"Failed to create final GBM plot for seed {iteration_seed}. Error: {e}")
                 except Exception as e:
                     logging.warning(f"Failed to generate GBM files for seed {iteration_seed}. Error: {e}")
 
         else:
-            # --- FUNCTION LOGIC: Generate/Append to a combined .npz file ---
-            details_path.mkdir(parents=True, exist_ok=True)
+            
             #print(f"GEN_SCRIPT --- Creating directory: {details_path}") # <-- ADD THIS LINE
-            combined_event_file_path = details_path / f"{param_dir_name}.npz"
+            combined_src_file_path = details_path / f"{param_dir_name}_src.npz"
+            combined_bkgd_file_path = details_path / f"{param_dir_name}_bkgd.npz"
 
-            existing_realizations = []
-            if combined_event_file_path.exists():
+            existing_sources = []
+            existing_backgrounds = []
+            if combined_src_file_path.exists():
                 try:
-                    data = np.load(combined_event_file_path, allow_pickle=True)
-                    existing_realizations = list(data['realizations'])
+                    data_sources = np.load(combined_src_file_path, allow_pickle=True)
+                    data_backgrounds = np.load(combined_bkgd_file_path, allow_pickle=True)
+                    existing_sources = list(data_sources['realizations'])
+                    existing_backgrounds = list(data_backgrounds['realizations'])
                 except Exception as e:
-                    logging.warning(f"Could not load {combined_event_file_path.name}, will overwrite. Error: {e}")
+                    logging.warning(f"Could not load {combined_src_file_path.name}, will overwrite. Error: {e}")
 
-            num_existing = len(existing_realizations)
+            num_existing = len(existing_sources)
             if num_existing >= NN_target:
                 logging.info(f"Already have {num_existing}/{NN_target} realizations for {param_dir_name}. Skipping.")
                 return
 
             start_index = num_existing
-            new_realizations = []
-            
+            new_sources = []
+            new_backgrounds = []
+
             for i in range(start_index, NN_target):
                 iteration_seed = original_seed + i
                 sim_params = {**self.params, 'random_seed': iteration_seed}
                 
                 try:
                     # This function returns the source events array in memory
-                    source_events, _, _ = self.simulation_function(
+                    source_events, back_events = self.simulation_function(
                         func=func_to_use, func_par=func_par,
                         back_func=constant, back_func_par=(self.params['background_level'],),
                         params=sim_params
                     )
-                    new_realizations.append(source_events)
+                    new_sources.append(source_events)
+                    new_backgrounds.append(back_events)
+                    if i == NN_target - 1:
+                        create_final_plot(
+                            source_events=source_events,
+                            background_events=back_events,
+                            model_info={
+                                'func': func_to_use,
+                                'func_par': func_par,
+                                'base_params': self.params,
+                                'snr_analysis': self.analysis_settings['snr_timescales']
+                            },
+                            output_info={
+                                'file_path': details_path,
+                                'file_name': param_dir_name
+                            }
+                        )
                 except Exception as e:
                     logging.warning(f"Function sim failed for seed {iteration_seed}. Error: {e}")
-            
-            all_realizations = existing_realizations + new_realizations
-            if all_realizations:
+
+            all_sources = existing_sources + new_sources
+            all_backgrounds = existing_backgrounds + new_backgrounds
+            if all_sources:
                 np.savez_compressed(
-                    combined_event_file_path,
-                    realizations=np.array(all_realizations, dtype=object),
+                    combined_src_file_path,
+                    realizations=np.array(all_sources, dtype=object),
+                    params=self.params
+                )
+            if all_backgrounds:
+                np.savez_compressed(
+                    combined_bkgd_file_path,
+                    realizations=np.array(all_backgrounds, dtype=object),
                     params=self.params
                 )
 
@@ -173,26 +224,6 @@ class FunSimulationTask(AbstractPulseSimulationTask):
         self.simulation_function = generate_function_events
         self.is_gbm = False
 
-# REFACTORED
-def generate_sim_tasks_from_config_new(config: Dict[str, Any], output_dir: 'Path') -> 'Generator':
-    """Generates simulation tasks by calling the shared parameter generator."""
-    logging.info("Generating simulation tasks from configuration...")
-    
-    # We now use our shared generator!
-    for param_set in _iterate_parameter_sets(config):
-        sim_type = param_set['sim_type']
-        TaskClass = globals().get(SIMULATION_REGISTRY.get(sim_type))
-
-        if not TaskClass:
-            logging.warning(f"Invalid sim_type '{sim_type}'. Skipping.")
-            continue
-        
-        # The TaskClass now receives the final, pre-determined output path
-        yield TaskClass(
-            output_path=param_set['output_path'],
-            variable_params=param_set['variable_params'],
-            constants=param_set['constants']
-        )
 
 def generate_sim_tasks_from_config(config: Dict[str, Any], output_dir: 'Path') -> 'Generator':
     """
@@ -200,6 +231,7 @@ def generate_sim_tasks_from_config(config: Dict[str, Any], output_dir: 'Path') -
     and generates all parameter combinations for simulation tasks.
     """
     pulse_definitions = config.get('pulse_definitions', {})
+    analysis_settings = config['analysis_settings']
 
     for campaign in config.get('simulation_campaigns', []):
         if not campaign.get('enabled', False):
@@ -260,7 +292,7 @@ def generate_sim_tasks_from_config(config: Dict[str, Any], output_dir: 'Path') -
 
             for combo in itertools.product(*param_values):
                 current_variable_params = dict(zip(param_names, combo))
-                yield TaskClass(output_dir, current_variable_params, final_constants)
+                yield TaskClass(output_dir, current_variable_params, final_constants,  analysis_settings)
 
 # ========= MAIN EXECUTION BLOCK =========
 def main():

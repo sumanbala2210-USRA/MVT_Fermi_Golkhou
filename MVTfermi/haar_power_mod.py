@@ -217,7 +217,7 @@ def haar_power_mod(rate,drate,min_dt=1.e-4,max_dt=100.,tau_bg_max=0.01,nrepl=2,d
                 tbeta = tau[ib0a]
                 if (y[ib1a]!=y[ib0a]): tbeta -= y[ib0a]*(tau[ib1a]-tau[ib0a])/(y[ib1a]-y[ib0a])
 
-        if (verbose): print (""" %s T_snr=%f T_beta=%f T_min=%f +/- %f""" % (file,tsnr,tbeta,tmin,dtmin))
+        #if (verbose): print (""" %s T_snr=%f T_beta=%f T_min=%f +/- %f""" % (file,tsnr,tbeta,tmin,dtmin))
 
         if (doplot):
 
@@ -274,7 +274,8 @@ def haar_power_mod(rate,drate,min_dt=1.e-4,max_dt=100.,tau_bg_max=0.01,nrepl=2,d
         if (otype=='limit'):
             tmin += snr*dtmin
             dtmin = 0.
-
+    
+    if (verbose): print (""" %s T_snr=%f T_beta=%f T_min=%f +/- %f""" % (file,tsnr,tbeta,tmin,dtmin))
     return tsnr,tbeta,tmin,dtmin,slope,sigma_tsnr,sigma_tmin
 
 

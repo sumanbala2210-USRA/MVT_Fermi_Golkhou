@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 from SIM_lib import _parse_param, e_n, _create_param_directory_name, PULSE_MODEL_MAP, RELEVANT_NAMING_KEYS, SIMULATION_REGISTRY
 
 
-from TTE_SIM_v2 import generate_gbm_events, generate_function_events, gaussian2, triangular, constant, norris, fred, lognormal, _calculate_multi_timescale_snr
+from TTE_SIM_v2 import GBM_MVT_analysis, Function_MVT_analysis, print_nested_dict, check_param_consistency, flatten_dict
 # ========= PLACEHOLDERS FOR YOUR CUSTOM MODULES =========
 # In a real project, these would be imported from your library files.
 try:
@@ -38,32 +38,6 @@ except ImportError:
 MAX_WORKERS = os.cpu_count() - 2
 SIM_CONFIG_FILE = 'simulations_ALL.yaml'
 RESULTS_FILE_NAME = "final_summary_results.csv"
-
-# REFACTORED
-def generate_analysis_tasks_new(config: Dict[str, Any]) -> 'Generator':
-    """Generates analysis tasks by finding results using the shared parameter generator."""
-    logging.info("Generating analysis tasks from configuration...")
-    
-    analysis_settings = config['analysis_settings']
-    
-    # We use the exact same shared generator!
-    for param_set in _iterate_parameter_sets(config):
-        
-        # It gives us the one true path to check
-        result_path = param_set['output_path']
-
-        if result_path.exists():
-            logging.info(f"Found results at {result_path}, queueing for analysis.")
-            yield {
-                'result_path': result_path,
-                'base_params': {
-                    **param_set['variable_params'],
-                    'pulse_shape': param_set['pulse_shape'],
-                    'sim_type': param_set['sim_type']
-                },
-                'analysis_settings': analysis_settings,
-            }
-
 
 
 def generate_analysis_tasks(config: Dict[str, Any]) -> 'Generator':
@@ -86,6 +60,13 @@ def generate_analysis_tasks(config: Dict[str, Any]) -> 'Generator':
                 df_triggers = pd.read_csv(variable_params_config.pop('trigger_set_file'))
                 variable_params_config['trigger_set'] = df_triggers.to_dict('records')
 
+            #final_constants = {}
+            #final_constants.update(campaign.get('constants', {}))
+            total_sim_analysis = campaign['constants'].get('total_sim', 100)
+            #final_constants.update(base_pulse_config.get('constants', {}))
+            #final_constants.update(pulse_override_constants)
+            #final_constants['pulse_shape'] = pulse_shape
+
             param_names = list(variable_params_config.keys())
             param_values = [_parse_param(v) for v in variable_params_config.values()]
 
@@ -99,7 +80,8 @@ def generate_analysis_tasks(config: Dict[str, Any]) -> 'Generator':
                 if param_dir_path.exists():
                     yield {
                         'param_dir_path': param_dir_path,
-                        'base_params': {**current_variable_params, 'pulse_shape': pulse_shape, 'sim_type': sim_type},
+                        'base_params': {**current_variable_params, 'pulse_shape': pulse_shape,
+                                        'sim_type': sim_type, 'num_analysis': total_sim_analysis},
                         'analysis_settings': analysis_settings,
                     }
 
@@ -125,10 +107,13 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
     ALL_PULSE_PARAMS = ['sigma', 'center_time', 'width', 'peak_time_ratio', 'start_time', 'rise_time', 'decay_time']
     DEFAULT_PARAM_VALUE = -999
     STANDARD_KEYS = [
-        'sim_type', 'pulse_shape', 'analysis_bin_width_ms', 'total_sim',
-        'successful_runs', 'failed_runs','median_mvt_ms', 'mvt_err_lower',
-        'mvt_err_upper', 'all_median_mvt_ms', 'all_mvt_err_lower', 'all_mvt_err_upper',
-        'mean_src_max', 'mean_back_avg', 'mean_snr_max'
+        'sim_type', 'pulse_shape', 'peak_amplitude', 'analysis_bin_width_ms',
+        'total_sim', 'successful_runs', 'failed_runs',
+        'median_mvt_ms', 'mvt_err_lower', 'mvt_err_upper',
+        'all_median_mvt_ms', 'all_mvt_err_lower', 'all_mvt_err_upper',
+        'angle', 'det', 'trigger', 
+        'mean_bkgd_counts', 'mean_src_counts', 'mean_back_avg',
+        'S_flu', 'S16', 'S32', 'S64', 'S128', 'S256'
     ]
     
     # Create a mirrored output directory in the results path
@@ -136,120 +121,59 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
     output_analysis_path = results_path / relative_path
     output_analysis_path.mkdir(parents=True, exist_ok=True)
 
-    iteration_details_list = []
-    NN = 0
+    sim_param_file = sorted(param_dir.glob('*.yaml'))
+    sim_params = yaml.safe_load(open(sim_param_file[0], 'r'))
+    #print("Type:", type(sim_params))
+    #print('\n')
+    check_param_consistency(
+            dict1=sim_params,
+            dict2=flatten_dict(base_params)
+    )
 
-    realization_source_events = []
+    #print_nested_dict(base_params)
+
     # --- 2. Load Data and Perform Per-Realization Analysis ---
     if sim_type == 'gbm':
         src_files = sorted(param_dir.glob('*_src.fits'))
         back_files = sorted(param_dir.glob('*_bkgd.fits'))
+        #NN = len(src_files)
+        #print(f"Found simulation parameter files: {sim_param_file}")
         if not src_files or not back_files:
             logging.warning(f"GBM analysis for {param_dir.name} has missing files.")
             return []
+
+        iteration_results, NN = GBM_MVT_analysis(input_info={
+            'src_event_files': src_files,
+            'back_event_files': back_files,
+            'sim_par_file': sim_params,
+            'base_params': base_params,
+            'snr_timescales': analysis_settings['snr_timescales'],
+            'analysis_bin_widths_ms': analysis_settings['bin_widths_to_analyze_ms']},
+            output_info = { 'file_path': output_analysis_path,
+                        'file_name': param_dir.name})
         
-        for i, src_file in enumerate(src_files):
-            iteration_seed = sim_params_base['random_seed'] + i
-            base_iter_detail = {
-                'iteration': i + 1, 'random_seed': iteration_seed,
-                'snr_max': 1,# round(max(snr_dict.values()), 2) if snr_dict else -100,
-                'src_max_cps': -1, # Placeholder, as this requires the ideal model
-                'back_avg_cps': round(background_level_cps, 2)
-            }
-            # Loop through analysis bin widths
-            for bin_width_ms in analysis_settings.get('bin_widths_to_analyze_ms', []):
-                bin_width_s = bin_width_ms / 1000.0
-                # Perform analysis for each bin width
-                counts, _ = get_gbm_lc(src_file, back_files[i], bin_width_s)
-                mvt_res = haar_power_mod(counts, np.sqrt(counts), min_dt=bin_width_s, doplot=False, afactor=-1.0, verbose=False)
-                plt.close('all')
-                mvt_val = float(mvt_res[2]) * 1000
-                mvt_err = float(mvt_res[3]) * 1000
-                
-                iter_detail = {**base_iter_detail, 'analysis_bin_width_ms': bin_width_ms,
-                                'mvt_ms': round(mvt_val, 4), 'mvt_err_ms': round(mvt_err, 4)}
-                iteration_details_list.append(iter_detail)
-
-
- 
-
-
-        if not event_files: return []
-        # <<< This is the dummy section for GBM analysis >>>
-        logging.info(f"GBM analysis for {param_dir.name} is a placeholder.")
-        # In a real implementation, you would:
-        # 1. Find all NN pairs of _src.fits and _bkgd.fits files in param_dir
-        # 2. Loop through each pair
-        # 3. Use your GDT library to open them and get source_events, background_events, and metadata
-        # 4. Perform the same analysis as the 'function' block below
-        # For now, we will leave it empty.
-        realization_source_events = ['test']
-        pass
 
     else: # sim_type == 'function'
-        event_files = sorted(param_dir.glob('*.npz'))
-        if not event_files: return []
-        
-        # Load the single combined file for this parameter set
-        data = np.load(event_files[0], allow_pickle=True)
-        source_event_realizations = data['realizations']
-        sim_params_base = data['params'].item()
-        NN = len(source_event_realizations)
+        src_files = sorted(param_dir.glob('*_src.npz'))
+        back_files = sorted(param_dir.glob('*_bkgd.npz'))
+        if not src_files or not back_files: return []
+        #NN = len(src_files)
 
-        for i, source_events in enumerate(source_event_realizations):
-            try:
-                # Get metadata and create background for this realization
-                t_start, t_stop = sim_params_base['t_start'], sim_params_base['t_stop']
-                background_level_cps = sim_params_base['background_level']
-                iteration_seed = sim_params_base['random_seed'] + i
+        iteration_results, NN = Function_MVT_analysis(input_info={
+            'src_event_files': src_files,
+            'back_event_files': back_files,
+            'sim_par_file': sim_params,
+            'base_params': base_params,
+            'snr_timescales': analysis_settings['snr_timescales'],
+            'analysis_bin_widths_ms': analysis_settings['bin_widths_to_analyze_ms']},
+            output_info={ 'file_path': output_analysis_path,
+                         'file_name': param_dir.name})
 
-                duration = t_stop - t_start
-                num_bkg = np.random.poisson(background_level_cps * duration)
-                background_events = np.random.uniform(t_start, t_stop, size=num_bkg)
-                total_events = np.sort(np.concatenate([source_events, background_events]))
-                
-                # Calculate per-realization metrics that are independent of bin width
-                """
-                source_counts_fine, _ = np.histogram(source_events, bins=int(duration / 0.001))
-                snr_dict = _calculate_multi_timescale_snr(
-                    source_counts=source_counts_fine, sim_bin_width=0.001,
-                    back_avg_cps=background_level_cps,
-                    search_timescales=analysis_settings['snr_analysis']['search_timescales']
-                )
-                """
-                base_iter_detail = {
-                    'iteration': i + 1, 'random_seed': iteration_seed,
-                    'snr_max': 1,# round(max(snr_dict.values()), 2) if snr_dict else -100,
-                    'src_max_cps': -1, # Placeholder, as this requires the ideal model
-                    'back_avg_cps': round(background_level_cps, 2)
-                }
-
-                # Loop through analysis bin widths
-                for bin_width_ms in analysis_settings.get('bin_widths_to_analyze_ms', []):
-                    bin_width_s = bin_width_ms / 1000.0
-                    bins = np.arange(t_start, t_stop + bin_width_s, bin_width_s)
-                    counts, _ = np.histogram(total_events, bins=bins)
-                    
-                    mvt_res = haar_power_mod(counts, np.sqrt(counts), min_dt=bin_width_s, doplot=False, afactor=-1.0, verbose=False)
-                    plt.close('all')
-                    mvt_val = float(mvt_res[2]) * 1000
-                    mvt_err = float(mvt_res[3]) * 1000
-                    
-                    iter_detail = {**base_iter_detail, 'analysis_bin_width_ms': bin_width_ms,
-                                   'mvt_ms': round(mvt_val, 4), 'mvt_err_ms': round(mvt_err, 4), **base_params}
-                    iteration_details_list.append(iter_detail)
-
-            except Exception as e:
-                logging.warning(f"Failed analysis on realization {i} in {event_files[0].name}. Error: {e}")
-                for bin_width_ms in analysis_settings.get('bin_widths_to_analyze_ms', []):
-                    iteration_details_list.append({'iteration': i + 1, 'random_seed': sim_params_base['random_seed'] + i,
-                                                   'analysis_bin_width_ms': bin_width_ms, 'mvt_ms': -100, 'mvt_err_ms': -200,
-                                                   'snr_max': -100, 'src_max_cps': -100, 'back_avg_cps': -100, **base_params})
 
     # --- 3. Aggregate Results (This logic is common to both data types) ---
-    if not iteration_details_list: return []
+    if not iteration_results: return []
 
-    detailed_df = pd.DataFrame(iteration_details_list)
+    detailed_df = pd.DataFrame(iteration_results)
     detailed_df.to_csv(output_analysis_path / f"Detailed_{param_dir.name}.csv", index=False)
 
     # Inside analyze_one_group, after creating detailed_df
@@ -260,21 +184,33 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
     for bin_width, group_df in detailed_df.groupby('analysis_bin_width_ms'):
 
         
-        # <<< 1. Get data for BOTH sets >>>
-        # All runs where MVT produced a positive timescale
-        all_positive_runs = group_df[group_df['mvt_ms'] > 0]
+
         # The subset of those where the error was also valid
         valid_runs = group_df[group_df['mvt_err_ms'] > 0]
-            
         # Statistics are calculated ONLY on the valid runs
         p16, median_mvt, p84 = np.percentile(valid_runs['mvt_ms'], [16, 50, 84])
+        # Use the 68% confidence interval width as a robust measure of "sigma"
+        ci_width = p84 - p16
+        # Set plot limits to be wide enough to see the distribution, but not the extreme outliers
+        data_min = max(0, p16 - 3 * ci_width)
+        data_max = p84 + 10 * ci_width #
+        #data_max = np.percentile(all_positive_runs['mvt_ms'], 99.5) if not all_positive_runs.empty else p84 + 3 * ci_width
 
-        all_p16, all_median_mvt, all_p84 = np.percentile(all_positive_runs['mvt_ms'], [16, 50, 84])
+        # <<< 1. Get data for BOTH sets >>>
+        # All runs where MVT produced a positive timescale
+        all_dist_flag = True
+        try:
+            all_positive_runs = group_df[(group_df['mvt_ms'] > 0) & (group_df['mvt_ms'] < 1e5)]
+            all_p16, all_median_mvt, all_p84 = np.percentile(all_positive_runs['mvt_ms'], [16, 50, 84])
+        except:
+            all_dist_flag = False
+            all_p16, all_median_mvt, all_p84 = (0, 0, 0)
+
         # --- Create the Enhanced MVT Distribution Plot ---
         fig, ax = plt.subplots(figsize=(10, 6))
 
         # <<< 2. Plot the background histogram of ALL non-failed runs in gray >>>
-        if not all_positive_runs.empty:
+        if not all_positive_runs.empty and all_dist_flag:
             ax.hist(all_positive_runs['mvt_ms'], bins=30, density=True, 
                         label=f'All Runs w/ MVT > 0 ({len(all_positive_runs)}/{NN})',
                         color='gray', alpha=0.5, histtype='stepfilled', edgecolor='none', zorder=1)
@@ -302,8 +238,14 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
             ax.axvline(p84, color='orange', linestyle='--', lw=1)
             ax.axvspan(p16, p84, color='darkorange', alpha=0.1, hatch='///',
                     label=f"68% C.I. [{p16:.3f}, {p84:.3f}]")
+            
+        auto_min, auto_max = ax.get_xlim()
+        final_min = max(auto_min, data_min)
+        final_max = min(auto_max, data_max)
 
         # Formatting
+        ax.set_xlim(final_min, final_max)
+        ax.set_ylim(bottom=0)
         ax.set_title(f"MVT: {param_dir.name}\nBin Width: {bin_width} ms", fontsize=12)
         ax.set_xlabel("Minimum Variability Timescale (ms)")
         ax.set_ylabel("Probability Density")
@@ -311,7 +253,8 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
         fig.tight_layout()
         plt.savefig(output_analysis_path / f"MVT_dis_{param_dir.name}_{bin_width}ms.png", dpi=300)
         plt.close(fig)
-        
+
+        #exit()
         # Build the standardized final output dictionary
         result_data = {
             **base_params, 'analysis_bin_width_ms': bin_width,
@@ -323,21 +266,40 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
             'all_median_mvt_ms': round(all_median_mvt, 4),
             'all_mvt_err_lower': round(all_median_mvt - all_p16, 4),
             'all_mvt_err_upper': round(all_p84 - all_median_mvt, 4),
-            'mean_src_max': round(valid_runs['src_max_cps'].mean(), 2),
+            'mean_src_counts': round(valid_runs['src_counts'].mean(), 2),
+            'mean_bkgd_counts': round(valid_runs['bkgd_counts'].mean(), 2),
+            'S_flu': round(valid_runs['S_flu'].mean(), 2),
+            'S16': round(valid_runs['S16'].mean(), 2),
+            'S32': round(valid_runs['S32'].mean(), 2),
+            'S64': round(valid_runs['S64'].mean(), 2),
+            'S128': round(valid_runs['S128'].mean(), 2),
+            'S256': round(valid_runs['S256'].mean(), 2),
             'mean_back_avg': round(valid_runs['back_avg_cps'].mean(), 2),
-            'mean_snr_max': round(valid_runs['snr_max'].mean(), 2)
+            'trigger': sim_params['trigger_number'],
+            'det': sim_params['det'],
+            'angle': sim_params['angle'],
         }
         
         final_dict = {}
-        # Populate with standard keys and any varying physical parameters
-        all_keys = STANDARD_KEYS + list(base_params.keys())
+
+        """        # Populate with standard keys and any varying physical parameters
+        print(f"BASE PARAMS: {base_params}")
+        all_keys = STANDARD_KEYS + list(base_params.get('trigger_set', {}).keys())
+        #all_keys.pop('trigger_set')
         for key in all_keys: final_dict[key] = result_data.get(key)
         # Fill in any non-applicable pulse parameters with a default
         for key in ALL_PULSE_PARAMS:
             if key not in final_dict: final_dict[key] = DEFAULT_PARAM_VALUE
+        """
+
+        for key in STANDARD_KEYS:
+            final_dict[key] = result_data.get(key)
+        
+        # Add all possible pulse parameter keys, using the default value if a key is not in this run's result_data
+        for key in ALL_PULSE_PARAMS:
+            final_dict[key] = result_data.get(key, DEFAULT_PARAM_VALUE)
         
         final_summary_list.append(final_dict)
-            
     return final_summary_list
 
 
@@ -349,9 +311,11 @@ def main():
         
     data_path = Path(config['project_settings']['data_path'])
     results_path = Path(config['project_settings']['results_path'])
-    
+
+    analysis_bin = config['analysis_settings']['bin_widths_to_analyze_ms'][0]
+
     # Create a new, timestamped directory for this run's results
-    run_results_path = results_path / f"run"#_{now}"
+    run_results_path = results_path / f"run_{e_n(analysis_bin)}_{now}"
     run_results_path.mkdir(parents=True, exist_ok=True)
     
     log_file = run_results_path / f'analysis_{now}.log'

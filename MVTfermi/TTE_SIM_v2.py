@@ -20,6 +20,10 @@ from typing import Dict, Any, Tuple, Optional
 import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+import logging
+
+import re
+from typing import List
 
 # --- GDT Core Imports ---
 from gdt.core.binning.unbinned import bin_by_time
@@ -27,7 +31,7 @@ from gdt.core.plot.lightcurve import Lightcurve
 #from gdt.core.simulate.profiles import tophat, constant, norris, quadratic, linear, gaussian
 from gdt.core.simulate.tte import TteBackgroundSimulator, TteSourceSimulator
 from gdt.core.simulate.pha import PhaSimulator
-from gdt.core.spectra.functions import DoubleSmoothlyBrokenPowerLaw, Band
+from gdt.core.spectra.functions import Band
 from gdt.missions.fermi.gbm.response import GbmRsp2
 from gdt.missions.fermi.gbm.tte import GbmTte
 #from lib_sim import write_yaml
@@ -55,6 +59,185 @@ gauss_params = (.5, 0.0, 0.1)
 
 
 from typing import Dict, Any, Tuple, Callable
+
+
+
+def print_nested_dict(d, indent=0):
+    """
+    Recursively prints a nested dictionary with simple values (int, str, list of primitives)
+    printed on the same line as their key.
+    """
+    spacing = "  " * indent
+
+    if isinstance(d, dict):
+        for key, value in d.items():
+            if isinstance(value, (str, int, float, bool)) or (
+                isinstance(value, list) and all(isinstance(v, (str, int, float, bool)) for v in value)
+            ):
+                print(f"{spacing}{repr(key)}: {value}")
+            else:
+                print(f"{spacing}{repr(key)}:")
+                print_nested_dict(value, indent + 1)
+
+    elif isinstance(d, list):
+        for i, item in enumerate(d):
+            if isinstance(item, (str, int, float, bool)) or (
+                isinstance(item, list) and all(isinstance(v, (str, int, float, bool)) for v in item)
+            ):
+                print(f"{spacing}- [Index {i}]: {item}")
+            else:
+                print(f"{spacing}- [Index {i}]")
+                print_nested_dict(item, indent + 1)
+    else:
+        print(f"{spacing}{repr(d)}")
+
+from typing import Dict, Any
+
+def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Flattens a dictionary by one level.
+
+    It takes a dictionary like {'a': 1, 'b': {'c': 2, 'd': 3}} and
+    returns a flat dictionary {'a': 1, 'c': 2, 'd': 3}.
+
+    Args:
+        d (Dict): The dictionary to flatten.
+
+    Returns:
+        Dict: A new, flattened dictionary.
+    """
+    flat_dict = {}
+    for key, value in d.items():
+        if isinstance(value, dict):
+            # If the value is a dictionary, unpack its items
+            flat_dict.update(value)
+        else:
+            # Otherwise, just add the key-value pair
+            flat_dict[key] = value
+    return flat_dict
+
+
+def check_param_consistency(
+    dict1: Dict[str, Any],
+    dict2: Dict[str, Any],
+    dict1_name: str = 'sim_params',
+    dict2_name: str = 'base_params'
+) -> List[str]:
+    """
+    Finds all keys common to two dictionaries and checks if their values are equal.
+    Handles standard types, floats (with tolerance), and NumPy arrays.
+
+    Args:
+        dict1 (Dict): The first dictionary.
+        dict2 (Dict): The second dictionary.
+        dict1_name (str): A descriptive name for the first dictionary for logging.
+        dict2_name (str): A descriptive name for the second dictionary for logging.
+
+    Returns:
+        List[str]: A list of strings describing any discrepancies found. An
+                   empty list means no discrepancies were found.
+    """
+    #discrepancies = []
+    
+    # Find the set of keys that exist in both dictionaries
+    common_keys = set(dict1.keys()) & set(dict2.keys())
+    
+    for key in sorted(list(common_keys)):
+        val1 = dict1[key]
+        val2 = dict2[key]
+        
+        # Use different comparison methods based on the data type
+        are_different = False
+        if isinstance(val1, np.ndarray) or isinstance(val2, np.ndarray):
+            if not np.array_equal(val1, val2):
+                are_different = True
+        elif isinstance(val1, float) or isinstance(val2, float):
+            if not np.isclose(val1, val2):
+                are_different = True
+        elif val1 != val2:
+            are_different = True
+            
+        if are_different:
+            msg = (
+                f"Discrepancy found for key '{key}':\n"
+                f"  - {dict1_name}['{key}'] = {val1} (type: {type(val1).__name__})\n"
+                f"  - {dict2_name}['{key}'] = {val2} (type: {type(val2).__name__})"
+            )
+            #discrepancies.append(msg)
+            print("########### ERROR ##########")
+            print(msg)
+            exit()
+
+
+def calculate_src_interval(params: Dict) -> Tuple[float, float]:
+    """
+    Calculates the 'true' source interval directly from the pulse model parameters.
+    """
+    pulse_shape = params['pulse_shape'] #, pulse_shape)
+    if pulse_shape == 'gaussian':
+        # For a Gaussian, the interval containing >99.7% of the flux is +/- 3-sigma
+        sigma = params['sigma']
+        center = params['center_time']
+        return center - 3 * sigma, center + 3 * sigma
+
+    elif pulse_shape == 'triangular':
+        # For a triangular pulse, the start and stop are explicitly defined
+        width = params['width']
+        center = params['center_time']
+        peak_ratio = params['peak_time_ratio']
+        t_start = center - (width * peak_ratio)
+        t_stop = t_start + width
+        return t_start, t_stop
+
+    elif pulse_shape in ['norris', 'fred']:
+        # For pulses with long tails, we can define a practical window,
+        # e.g., from the start time to where the pulse has significantly decayed.
+        # Here, we approximate this as the peak + 7 decay timescales.
+        t_rise = params['rise_time']
+        t_decay = params['decay_time']
+        t_start = params['start_time']
+        # Rough peak time is a few rise times after the start
+        peak_time_approx = t_start + 2 * t_rise 
+        t_stop = peak_time_approx + 7 * t_decay
+        return t_start, t_stop
+    
+    # Add other pulse shapes as needed...
+
+    # Fallback if shape is unknown
+    return params.get('src_start'), params.get('src_stop')
+
+
+
+
+
+
+def parse_intervals_from_csv(value_from_csv: str) -> List[List[float]]:
+    """
+    Parses a string like '-20.0, -5.0, 75.0, 200.0' from a CSV cell
+    into a list of pairs, e.g., [[-20.0, -5.0], [75.0, 200.0]].
+    """
+    # Ensure the input is treated as a string
+    s = str(value_from_csv).strip()
+    
+    # Use a regular expression to split by comma and/or any amount of space
+    # This is very robust against formatting like "-20, -5" or "-20 -5"
+    parts = re.split(r'[,\s]+', s)
+    
+    # Convert non-empty parts to floats
+    vals = [float(p) for p in parts if p]
+    
+    # Check for an even number of values
+    if len(vals) % 2 != 0:
+        raise ValueError(
+            f"background_intervals must contain an even number of values, but got {len(vals)} from '{value_from_csv}'"
+        )
+        
+    # Group the flat list into a list of [start, end] pairs
+    return [vals[i:i+2] for i in range(0, len(vals), 2)]
+
+
+
+
 
 
 def calculate_adaptive_simulation_params(pulse_shape: str, params: Dict) -> Dict:
@@ -93,7 +276,7 @@ def calculate_adaptive_simulation_params(pulse_shape: str, params: Dict) -> Dict
         # A simple approximation for the peak time
         peak_time_approx = start + t_rise * 2 
         # End the simulation after the pulse has decayed significantly (~10x decay time)
-        t_start = start - padding * grid_res * 20
+        t_start = start - padding * grid_res * 20 - 2 * t_rise - 1 * t_decay
         t_stop = peak_time_approx + 10 * t_decay + padding * grid_res * 20
 
     elif pulse_shape == 'triangular':
@@ -119,6 +302,12 @@ def calculate_adaptive_simulation_params(pulse_shape: str, params: Dict) -> Dict
         t_start, t_stop, grid_res = -5.0, 5.0, 0.0001
         
     return {'t_start': t_start, 't_stop': t_stop, 'grid_resolution': grid_res}
+
+
+
+
+
+
 
 def _format_params_for_annotation(func: Callable, func_par: Tuple) -> str:
     """Formats function and parameters into a concise string for a plot title."""
@@ -154,398 +343,215 @@ def _format_params_for_annotation(func: Callable, func_par: Tuple) -> str:
             return f"{func.__name__}{func_par}"
 
 
+
+
 def _calculate_multi_timescale_snr(
-    source_counts: np.ndarray,
+    total_counts: np.ndarray,
     sim_bin_width: float,
     back_avg_cps: float,
     search_timescales: List[float]
-) -> Dict[float, float]:
+) -> Dict[str, float]:
     """
-    Calculates the SNR for a list of timescales and returns the results
-    as a dictionary.
+    Calculates SNR by finding the peak in the total light curve and
+    subtracting the expected background.
+
+    Args:
+        total_counts (np.ndarray): High-resolution binned light curve of TOTAL (source + bkg) events.
+        sim_bin_width (float): The bin width of the high-resolution light curve (in seconds).
+        back_avg_cps (float): The average background rate in counts per second.
+        search_timescales (List[float]): A list of timescales (in seconds) to search.
+
+    Returns:
+        A dictionary of SNR values for each timescale.
     """
-    snr_results = {} # Use a dictionary for clarity
+    snr_results = {}
 
     for timescale in search_timescales:
         try:
             factor = max(1, int(round(timescale / sim_bin_width)))
-            end = (len(source_counts) // factor) * factor
+            end = (len(total_counts) // factor) * factor
             if end == 0:
-                snr_results[timescale] = 0.0
+                snr_results[f'S{int(timescale*1000)}'] = 0.0
                 continue
             
-            rebinned_counts = np.sum(source_counts[:end].reshape(-1, factor), axis=1)
-            signal = np.max(rebinned_counts)
-            background_counts_in_bin = back_avg_cps * timescale
-            noise = np.sqrt(background_counts_in_bin)
-            snr = signal / noise if noise > 0 else np.inf
-            snr_results[timescale] = snr
+            # Re-bin the TOTAL counts
+            rebinned_total_counts = np.sum(total_counts[:end].reshape(-1, factor), axis=1)
+            
+            # Find the total number of counts in the brightest time window
+            counts_in_peak_bin = np.max(rebinned_total_counts)
+            
+            # <<< NEW: Calculate Signal and Noise via background subtraction >>>
+            expected_bkg_in_bin = back_avg_cps * timescale
+            
+            # The signal is the excess counts above the background
+            signal = counts_in_peak_bin - expected_bkg_in_bin
+            
+            # The noise is the Poisson error on the total counts in that bin
+            noise = np.sqrt(counts_in_peak_bin)
+            
+            snr = signal / noise if noise > 0 else 0
+            snr_results[f'S{int(timescale*1000)}'] = round(snr, 2)
+            
         except Exception:
-            snr_results[timescale] = 0.0 # Assign 0 on error
+            snr_results[f'S{int(timescale*1000)}'] = -1.0
             continue
 
     return snr_results
 
-def create_and_save_plot(
-    output_path: Path,
-    title: str,
-    xlabel: str,
-    ylabel: str,
-    plot_data: List[Dict[str, Any]],
-    h_lines: Optional[List[Dict[str, Any]]] = None,
-    # ... other styling arguments
-    annotation_text: Optional[str] = None,
-    figsize: tuple = (12, 6),
-    style: str = 'seaborn-v0_8-whitegrid',
-    title_fontsize: int = 16,
-    label_fontsize: int = 12,
-    legend_fontsize: int = 10,
-    grid_alpha: float = 0.6,
-    xlim: Optional[tuple] = None,
-    ylim_bottom: float = 0
-):
-    plt.style.use(style)
-    fig, ax = plt.subplots(figsize=figsize)
-    for data in plot_data:
-        ax.step(data['x'], data['y'], where='mid', label=data.get('label'),
-                color=data.get('color', 'black'), linewidth=data.get('lw', 1.5))
-        if 'fill_alpha' in data:
-            ax.fill_between(data['x'], data['y'], step="mid",
-                            color=data.get('color', 'gray'), alpha=data.get('fill_alpha', 0.5))
-    if h_lines:
-        for line in h_lines:
-            ax.axhline(y=line['y'], color=line.get('color', 'k'),
-                        linestyle=line.get('linestyle', '--'), linewidth=line.get('lw', 1.5),
-                        label=line.get('label'), zorder=line.get('zorder', 3))
-    ax.set_title(title, fontsize=title_fontsize, pad=10)
-    ax.set_xlabel(xlabel, fontsize=label_fontsize)
-    ax.set_ylabel(ylabel, fontsize=label_fontsize)
-    ax.legend(fontsize=legend_fontsize, loc='upper left')
-    ax.grid(True, which='both', linestyle='--', alpha=grid_alpha)
-    if xlim:
-        ax.set_xlim(*xlim)
-        # --- NEW: Add the annotation text box if text is provided ---
-    if annotation_text:
-        # Define the style of the box
-        props = dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.5)
-        # Place the text box in the top-right corner of the plot area
-        ax.text(0.97, 0.97, annotation_text,
-                transform=ax.transAxes,
-                fontsize=8,
-                verticalalignment='top',
-                horizontalalignment='right',
-                bbox=props)
-    ax.set_ylim(bottom=ylim_bottom)
-    fig.tight_layout()
-    plt.savefig(output_path, dpi=300)
-    plt.close(fig)
-    plt.close('all')
-    #print(f"Plot saved to: {output_path}")
 
 
-def generate_pulse_function(t: np.ndarray, params: Dict[str, Any]) -> np.ndarray:
-    """
-    Generates only the pulse components from a parameter dictionary.
-    This function excludes the background level.
 
-    Args:
-        t (np.ndarray): Array of times.
-        params (Dict[str, Any]): A dictionary containing 'main_amplitude' and 'pulse_list'.
-
-    Returns:
-        np.ndarray: An array containing the sum of all generated pulses.
-    """
-    # Initialize an array of zeros to accumulate the pulses
-    pulses = np.zeros_like(t, dtype=float)
-
-    # Ensure 'pulse_list' exists to avoid errors
-    if 'pulse_list' not in params:
-        return pulses
-
-    # Iterate through each pulse defined in the parameter list
-    for pulse_def in params.get('pulse_list', []):
-        pulse_type, (rel_amp, *time_params) = pulse_def
-
-        # Calculate the absolute amplitude based on the main amplitude
-        abs_amp = params.get('main_amplitude', 1.0) * rel_amp
-        full_params = (abs_amp, *time_params)
-
-        # Add the corresponding pulse shape to the total
-        if pulse_type == 'fred':
-            pulses += fred(t, *full_params)
-        elif pulse_type == 'norris':
-            pulses += norris(t, *full_params)
-        elif pulse_type == 'gaussian':
-            pulses += gaussian(t, *full_params)
-        elif pulse_type == 'lognormal':
-            pulses += lognormal(t, *full_params)
-        else:
-            # Optionally, warn the user about an unknown pulse type
-            print(f"Warning: Unknown pulse type '{pulse_type}' encountered. Skipping.")
-
-    return pulses
-
-# Assume generate_pulse_function, constant, and create_and_save_plot are defined
-
-def gen_pulse_advanced(
-    t_start=-10.0,
-    t_stop=10.0,
-    func=None,
-    func_par=(),
-    back_func=None,
-    back_func_par=(),
-    bin_width=0.0001,
-    source_base_rate=1000.0,
-    background_base_rate=1000.0,
-    fig_name=None,
-    plot_flag=True,
-    random_seed=42,
-    # NEW: Control which plot to generate
-    plot_type: str = 'decomposed',
-    plot_rebin_factor: Optional[int] = 100,
-    title: Optional[str] = None
+def create_final_plot(
+    source_events: np.ndarray,
+    background_events: np.ndarray,
+    model_info: Dict,
+    output_info: Dict
 ):
     """
-    Generates a high-fidelity pulse profile and can create one of two plot types.
-    - 'diagnostic': Compares simulated rate to the ideal model rates.
-    - 'decomposed': Shows the simulated total and source-only components.
-
-    Returns:
-        tuple: (times, total_counts, source_only_counts, src_max_cps, back_avg_cps, SNR)
+    A self-contained function that takes raw event data and creates a
+    final, styled, and richly annotated representative plot.
     """
-    np.random.seed(random_seed)
-    search_timescales = [0.010, 0.016, 0.032, 0.064, 0.128]
-
-    # --- 1. TTE Event Generation (Same as before) ---
-    def total_rate_func(t):
-        source_rate = func(t, *func_par) * source_base_rate if func else 0
-        background_rate = back_func(t, *back_func_par) * background_base_rate if back_func else 0
-        return source_rate + background_rate
-
-    grid_resolution = bin_width / 10.0
-    grid_times = np.arange(t_start, t_stop, grid_resolution)
-    rate_on_grid = total_rate_func(grid_times)
-    cumulative_counts = spi.cumulative_trapezoid(rate_on_grid, grid_times, initial=0)
-    total_expected_counts = cumulative_counts[-1]
-    num_events = np.random.poisson(total_expected_counts)
-    random_counts = np.random.uniform(0, total_expected_counts, num_events)
-    event_times = np.interp(random_counts, cumulative_counts, grid_times)
-
-    # --- 2. Bin Total Events (Same as before) ---
-    bins = np.arange(t_start, t_stop + bin_width, bin_width)
-    total_counts, _ = np.histogram(event_times, bins=bins)
-    times = bins[:-1] + bin_width / 2.0
-    
-    # --- NEW: 3. Probabilistic Splitting of Events ---
-    # At the precise time of each event, what was the probability it was a source event?
-    source_rate_at_events = func(event_times, *func_par) * source_base_rate
-    background_rate_at_events = back_func(event_times, *back_func_par) * background_base_rate
-    total_rate_at_events = source_rate_at_events + background_rate_at_events
-    
-    # Calculate probability, avoiding division by zero
-    p_source = np.divide(
-        source_rate_at_events, total_rate_at_events,
-        out=np.zeros_like(source_rate_at_events), where=total_rate_at_events != 0
-    )
-    
-    # For each event, "roll a die" to classify it as source or background
-    is_source_event = np.random.rand(num_events) < p_source
-    source_event_times = event_times[is_source_event]
-    
-    # Bin the source-only events
-    source_only_counts, _ = np.histogram(source_event_times, bins=bins)
-
-    # --- 4. Calculate Metrics (Same as before) ---
-    source_rate_ideal = func(times, *func_par) * source_base_rate
-    background_rate_ideal = back_func(times, *back_func_par) * background_base_rate
-    src_max_cps = np.max(source_rate_ideal)
-    back_avg_cps = np.mean(background_rate_ideal)
-
-    snr_results_dict = _calculate_multi_timescale_snr(
-        source_counts=source_only_counts,
-        sim_bin_width=bin_width,
-        back_avg_cps=back_avg_cps,
-        search_timescales=search_timescales
-    )
-
-
-
-        # Find the single best SNR for the main title
-    max_snr = max(snr_results_dict.values()) if snr_results_dict else 0
-    int_snr = int(np.round(max_snr))
-    # --- 5. Optional Plotting (Now with choices!) ---
-    if plot_flag:
-        annotation_text = _format_params_for_annotation(func, func_par)
-
+    try:
+        # --- 1. Unpack all necessary data and parameters ---
+        params = model_info['base_params']
+        #print_nested_dict(params)
+        func_to_use = model_info['func']
+        func_par = model_info['func_par']
+        fig_name = output_info['file_path'] / f"LC_{output_info['file_name']}.png"
+        base_title = f" LC {output_info['file_name']}"
+        t_start, t_stop = params['t_start'], params['t_stop']
+        background_level_cps = params['background_level']* params.get('scale_factor', 1.0)
+        
+        # --- 2. Prepare Data for Plotting (Binning) ---
+        total_events = np.sort(np.concatenate([source_events, background_events]))
+        bin_width = params.get('bin_width_for_plot', 0.01)
+        bins = np.arange(t_start, t_stop + bin_width, bin_width)
+        times = bins[:-1] + bin_width / 2.0
+        total_counts, _ = np.histogram(total_events, bins=bins)
+        source_only_counts, _ = np.histogram(source_events, bins=bins)
+        
+        # <<< NEW: Calculate multi-timescale SNR >>>
+        duration = t_stop - t_start
+        total_counts_fine, _ = np.histogram(total_events, bins=int(duration / 0.001))
+        snr_results_dict = _calculate_multi_timescale_snr(
+            total_counts=total_counts_fine,
+            sim_bin_width=0.001,
+            back_avg_cps=background_level_cps,
+            search_timescales= model_info['snr_analysis']
+        )
+        
+        # <<< NEW: Format SNR results for the title >>>
         snr_annotation_parts = []
         for ts, snr_val in snr_results_dict.items():
-            # Format timescale in ms for the label, e.g., 0.016 -> s16
-            label = f"S$_{{{int(ts * 1000)}}}$"
-            # Format SNR value to one decimal place
+            label = f"S$_{{{ts[1:]}}}$" # Use LaTeX for subscript
             value = f"{snr_val:.1f}"
             snr_annotation_parts.append(f"{label}={value}")
-        
-        # Join the parts with a semicolon
         SNR_text = "; ".join(snr_annotation_parts)
-        #title = "; ".join(snr_annotation_parts)
-        SNR_text = "; ".join(snr_annotation_parts)
-        
-        if title is None:
-            title = "Sim " + SNR_text
-        else:
-            title = title + "; " + SNR_text
+        final_title = f"{base_title}\n{SNR_text}"
 
-        if fig_name is None:
-            fig_name = f"simulation_plot_{int_snr}.png"
-        rebin = plot_rebin_factor is not None and plot_rebin_factor > 1
-        if rebin:
-            factor = plot_rebin_factor
-            end = (len(total_counts) // factor) * factor
+        # <<< NEW: Format model parameters for the annotation box >>>
+        annotation_text = _format_params_for_annotation(func_to_use, func_par)
+
+        # --- 3. Define the plot data (for 'decomposed' plot type) ---
+        ideal_background_counts = background_level_cps * bin_width
+        plot_data = [
+            {'x': times, 'y': total_counts, 'label': 'Total Signal (Simulated)', 'color': 'rosybrown', 'fill_alpha': 0.6},
+            {'x': times, 'y': source_only_counts, 'label': 'Source Signal (Simulated)', 'color': 'darkgreen', 'fill_alpha': 0.4}
+        ]
+        h_lines = [{'y': ideal_background_counts, 'label': f'Ideal Background ({background_level_cps:.1f} cps)', 'color': 'k'}]
+        ylabel = f"Counts per {bin_width*1000:.1f} ms Bin"
             
-            # Re-bin the data by summing counts
-            plot_total_counts = np.sum(total_counts[:end].reshape(-1, factor), axis=1)
-            plot_source_counts = np.sum(source_only_counts[:end].reshape(-1, factor), axis=1)
-            
-            # Calculate the new time bins for the plot
-            plot_bin_width = bin_width * factor
-            plot_times = np.arange(t_start, t_start + len(plot_total_counts) * plot_bin_width, plot_bin_width) + plot_bin_width / 2.0
-        else:
-            # If not rebinning, use the original simulation data
-            plot_total_counts = total_counts
-            plot_source_counts = source_only_counts
-            plot_times = times
-            plot_bin_width = bin_width
+        # --- 4. Create the Plot (Core Matplotlib Logic) ---
+        plt.style.use('seaborn-v0_8-whitegrid')
+        fig, ax = plt.subplots(figsize=(12, 7))
 
+        for data in plot_data:
+            ax.step(data['x'], data['y'], where='mid', label=data.get('label'), color=data.get('color'), lw=data.get('lw', 1.5))
+            if 'fill_alpha' in data:
+                ax.fill_between(data['x'], data['y'], step="mid", color=data.get('color'), alpha=data.get('fill_alpha'))
+        for line in h_lines:
+            ax.axhline(y=line['y'], color=line.get('color'), linestyle='--', label=line.get('label'))
 
-        # --- Call the plotter with the (possibly rebinned) data ---
-        if plot_type == 'diagnostic':
-            # Note: For diagnostic plots, we still show the original ideal rates for comparison
-            plot_data = [
-                {'x': plot_times, 'y': plot_total_counts / plot_bin_width, 'label': f'Simulated Rate (Binned to {plot_bin_width*1000:.1f}ms)', 'color': 'black'},
-                {'x': times, 'y': source_rate_ideal + background_rate_ideal, 'label': 'Ideal Total Rate', 'color': 'red', 'lw': 1},
-            ]
-            create_and_save_plot(output_path=Path(fig_name), title=title, annotation_text=annotation_text,
-                                 xlabel="Time (s)", ylabel="Rate (counts/sec)", plot_data=plot_data, xlim=(t_start, t_stop))
+        ax.set_title(final_title, fontsize=12) # Use new dynamic title
+        ax.set_xlabel("Time (s)", fontsize=12)
+        ax.set_ylabel(ylabel, fontsize=12)
+        ax.legend(loc='upper right')
+        ax.set_xlim(t_start, t_stop)
+        ax.set_ylim(bottom=0)
+
+        # Use the new dynamic annotation text
+        if annotation_text:
+            props = dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.7)
+            ax.text(0.03, 0.97, annotation_text, transform=ax.transAxes, fontsize=9,
+                    verticalalignment='top', horizontalalignment='left', bbox=props)
         
-        elif plot_type == 'decomposed':
-            ideal_background_counts = back_avg_cps * plot_bin_width
-            plot_data = [
-                {'x': plot_times, 'y': plot_total_counts, 'label': 'Total Signal (Simulated)', 'color': 'rosybrown', 'fill_alpha': 0.6},
-                {'x': plot_times, 'y': plot_source_counts, 'label': 'Source Signal (Simulated)', 'color': 'darkgreen', 'fill_alpha': 0.4}
-            ]
-            h_lines_data = [{'y': ideal_background_counts, 'label': f'Ideal Background', 'color': 'k'}]
-            create_and_save_plot(output_path=Path(fig_name), title=title, annotation_text=annotation_text,
-                                 xlabel="Time (s)", ylabel=f"Counts per {plot_bin_width*1000:.1f} ms Bin",
-                                 plot_data=plot_data, h_lines=h_lines_data, xlim=(t_start, t_stop))
+        fig.tight_layout()
+        plt.savefig(fig_name, dpi=300)
+        plt.close(fig)
+        #logging.info(f"Representative plot saved to {fig_name}")
+
+    except Exception as e:
+        print(f"Failed to generate representative plot. Error: {e}")
+        pass
+        #logging.error(f"Failed to generate representative plot. Error: {e}")
 
 
-    # UPDATED return statement
-    return times, total_counts, int(np.round(src_max_cps)), int(np.round(back_avg_cps)), int_snr
+def create_final_gbm_plot(
+                src_event_file,
+                back_event_file,
+                model_info: Dict,
+                output_info: Dict):
+    params = model_info['base_params']
+    #params = model_info.get('params', {})
+    #print_nested_dict(params)
+    
+    
+    en_lo = params.get('en_lo', 8.0)
+    en_hi = params.get('en_hi', 900.0)
 
-def gen_GBM_pulse(trigger_number,
-                  det,
-                  angle=0,
-                  t_start=-10.0,
-                  t_stop=10.0,
-                  func = None,
-                  func_par = (0,0,0,0),
-                  back_func = constant,
-                  back_func_par = (1.,),
-                  bkgd_times=[(-20.0, -5.0), (75.0, 200.0)],
-                  en_lo=8.0,
-                  en_hi=900.0,
-                  bin_width = 0.0001,
-                  random_seed=42,
-                  fig_name=None,
-                  plot_flag=False):
+    #fig_name = params.get('fig_name', None)
+    t_start = params['t_start'] if 't_start' in params else -5.0
+    t_stop = params['t_stop'] if 't_stop' in params else 5.0
+
+    #print(params)
+    trigger_number = params['trigger_number'] if 'trigger_number' in params else 0
+    det = params['det'] if 'det' in params else 'nn'
+    angle = params['angle'] if 'angle' in params else 0
+
+    #analysis_settings = model_info['snr_analysis']
+
+    func_to_use = model_info.get('func', None)
+    func_par = model_info.get('func_par', {})
+    fig_name = output_info['file_path'] / f"LC_{output_info['file_name']}.png"
+    base_title = f" LC {output_info['file_name']}"
+
     energy_range_nai = (en_lo, en_hi)
-    band_params = (0.1, 300.0, -1.0, -2.5)
-    grid_resolution = bin_width / 10.0
-    #tte = GbmTte.open('glg_tte_n6_bn250612519_v00.fit')
-    folder_path = os.path.join(os.getcwd(), 'data_rmf')
-
-    tte_pattern = f'{folder_path}/glg_tte_n{det}_bn{trigger_number}_v*.fit'
-    tte_files = glob.glob(tte_pattern)
-
-    if not tte_files:
-        raise FileNotFoundError(f"No TTE file found matching pattern: {tte_pattern}")
-    tte_file = tte_files[0]  # Assuming only one file/version per det/trigger_number
-
-    # Find the RSP2 file (e.g., glg_cspec_n3_bn230307053_v03.rsp2)
-    rsp2_pattern = f'{folder_path}/glg_cspec_n{det}_bn{trigger_number}_v*.rsp2'
-    rsp2_files = glob.glob(rsp2_pattern)
-
-    if not rsp2_files:
-        raise FileNotFoundError(f"No RSP2 file found matching pattern: {rsp2_pattern}")
-    rsp2_file = rsp2_files[0]  # Assuming only one file/version per det/trigger_number
 
     # Open the files
-    tte = GbmTte.open(tte_file)
-    rsp2 = GbmRsp2.open(rsp2_file)
-    #tte = GbmTte.open(f'glg_tte_{det}_bn{trigger_number}_v00.fit')
-    #rsp2 = GbmRsp2.open(f'glg_cspec_{det}_bn{trigger_number}_v03.rsp2')
+    tte_src_all = GbmTte.open(src_event_file)
+    tte_bkgd_all = GbmTte.open(back_event_file)
 
-    # bin to 1.024 s resolution, reference time is trigger time
-    phaii = tte.to_phaii(bin_by_time, 1.024, time_ref=0.0)
-    bkgd_times = bkgd_times
-    backfitter = BackgroundFitter.from_phaii(phaii, Polynomial, time_ranges=bkgd_times)
-    
-    backfitter.fit(order=1)
-    bkgd = backfitter.interpolate_bins(phaii.data.tstart, phaii.data.tstop)
-    
-    select_time = (t_start, t_stop)
-    # the background model integrated over the source selection time
-    spec_bkgd = bkgd.integrate_time(*select_time)
-    rsp = rsp2.extract_drm(atime=np.average(select_time))
+    tte_src = tte_src_all.slice_time([t_start, t_stop])
+    tte_bkgd = tte_bkgd_all.slice_time([t_start, t_stop])
+    total_bkgd_counts = tte_bkgd.data.size
+    #print("Tstart:", t_start, "Tstop:", t_stop)
+    bkgd_cps = total_bkgd_counts/(t_stop - t_start)
+    #print(f"Background counts: {total_bkgd_counts}, Background CPS: {bkgd_cps}")
 
-    
-    # source simulation
-    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, sample_period=grid_resolution, deadtime=1e-6, rng=np.random.default_rng(random_seed))
-    
-    tte_src = tte_sim.to_tte(t_start, t_stop)
-    
-    # background simulation
-    #tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', quadratic, quadratic_params)
-    tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, sample_period=grid_resolution, deadtime=1e-6, rng=np.random.default_rng(random_seed))
-    tte_bkgd = tte_sim.to_tte(t_start, t_stop)
-    
     # merge the background and source
-    #tte_total = GbmTte.merge([tte_bkgd, tte_src])
-    #tte_total = GbmTte.merge([tte_src, tte_bkgd])
-    tte_total = PhotonList.merge([tte_src, tte_bkgd])
-    src_max = 1
-    back_avg = 1
-    SNR = 1
+    tte_total = GbmTte.merge([tte_src, tte_bkgd])
 
     try:
-        plot_bw = 0.1
-        phaii = tte_total.to_phaii(bin_by_time, plot_bw)
-        
-        phaii = tte_total.to_phaii(bin_by_time, plot_bw)
-        phii_src = tte_src.to_phaii(bin_by_time, plot_bw)
-        phii_bkgd = tte_bkgd.to_phaii(bin_by_time, plot_bw)
+        fine_bw = 0.001
+        phaii = tte_total.to_phaii(bin_by_time, fine_bw)
+
+        phaii = tte_total.to_phaii(bin_by_time, fine_bw)
+        phii_src = tte_src.to_phaii(bin_by_time, fine_bw)
+        phii_bkgd = tte_bkgd.to_phaii(bin_by_time, fine_bw)
         lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
         lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
         lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
 
-        """
-        lcplot = Lightcurve(data=lc_tot, background=lc_bkgd)
-        _= lcplot.add_selection(lc_src)
-        lcplot.selections[1].color = 'pink'
-        """
-
-        src_max = max(lc_src.counts)
-        back_avg = np.mean(lc_bkgd.counts)
-        SNR = src_max / np.sqrt(back_avg)
-    
-    except Exception as e:
-        print(f"Error during SNR computing")
-        lc_tot = None
-        lc_src = None
-        lc_bkgd = None
-
-
-    if plot_flag:
         try:
             #lcplot = Lightcurve(data=phaii.to_lightcurve(energy_range=energy_range_nai))
             lcplot = Lightcurve(data=lc_tot)
@@ -563,40 +569,318 @@ def gen_GBM_pulse(trigger_number,
 
 
             ######### SNR Calculation #########
-
-            if fig_name is None:
-                fig_name = f'lc_{trigger_number}_n{det}_{angle}deg.png'
-
-                #plt.show()
-            
-            for i in range(len(func_par)):
-                if i == 0:
-                    func_txt = f"amp: {func_par[i]:.2f},"
-                elif i == 2:
-                    func_txt += f" rise/sig/tp: {func_par[i]:.2f},"
-                elif i == 3:
-                    func_txt += f" decay/stop: {func_par[i]:.2f}"
-            plt.title(f'Bn{trigger_number}, n{det}, {angle}deg, back {back_func_par[0]},\n {func_txt}', fontsize=10)
-
-            plt.savefig(fig_name, dpi=300)
-            plt.close()
         except Exception as e:
             print(f"Error during plotting: {e}")
             lcplot = None
+
+        snr_results_dict = _calculate_multi_timescale_snr(
+                    total_counts=lc_tot.counts, sim_bin_width=0.001,
+                    back_avg_cps= bkgd_cps,
+                    search_timescales=model_info['snr_analysis']
+                )
+        
+        # <<< NEW: Format SNR results for the title >>>
+        snr_annotation_parts = []
+        for ts, snr_val in snr_results_dict.items():
+            label = f"S$_{{{ts[1:]}}}$" # Use LaTeX for subscript
+            value = f"{snr_val:.1f}"
+            snr_annotation_parts.append(f"{label}={value}")
+        SNR_text = "; ".join(snr_annotation_parts)
+        final_title = f'Bn{trigger_number}, n{det}, {angle}deg,' + f"{base_title}\n{SNR_text}"
+
+        # <<< NEW: Format model parameters for the annotation box >>>
+        if func_to_use is not None:
+            annotation_text = _format_params_for_annotation(func_to_use, func_par)
+            if annotation_text:
+                props = dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.7)
+                plt.text(0.03, 0.97, annotation_text, transform=plt.gca().transAxes, fontsize=9,
+                        verticalalignment='top', horizontalalignment='left', bbox=props)
+
+
+        if fig_name is None:
+            fig_name = f'lc_{trigger_number}_n{det}_{angle}deg.png'
+
         
 
-    phaii_hi = tte_total.to_phaii(bin_by_time, bin_width)
-    phaii = phaii_hi.slice_energy(energy_range_nai)
-    data = phaii.to_lightcurve()
-    return data.centroids, data.counts, int(np.round(src_max)), int(np.round(back_avg)), int(np.round(SNR))
+        #plt.show()
+
+        plt.title(final_title, fontsize=10)
+
+        plt.savefig(fig_name, dpi=300)
+        plt.close()
+    
+    except Exception as e:
+        print(f"Failed to generate representative GBM plot. Error: {e}")
 
 
 
 
+def Function_MVT_analysis(input_info: Dict,
+                           output_info: Dict):
+    #params = input_info['base_params']
+
+    src_event_files = input_info['src_event_files']
+    back_event_files = input_info['back_event_files']
+
+    sim_params_file = input_info['sim_par_file']
+
+    if type(sim_params_file) is dict:
+        sim_params = sim_params_file
+    else:
+        sim_params = yaml.safe_load(open(sim_params_file, 'r'))
+
+    data_src = np.load(src_event_files[0], allow_pickle=True)
+    data_back = np.load(back_event_files[0], allow_pickle=True)
+    #sim_params = data_src['params'].item()
+    
+    background_level = sim_params['background_level']
+    scale_factor = sim_params['scale_factor']
+  
+
+    t_start = sim_params['t_start']
+    t_stop = sim_params['t_stop']
+    det = sim_params.get('det', 'nn')
+    angle = sim_params.get('angle', 0)
+   
+    base_params = input_info['base_params']
+    NN_analysis = base_params['num_analysis']
+    snr_timescales = input_info.get('snr_timescales', [0.010, 0.016, 0.032, 0.064, 0.128])
+    analysis_bin_widths_ms = input_info['analysis_bin_widths_ms']
+
+
+    source_event_realizations_all = data_src['realizations']
+    background_event_realizations = data_back['realizations']
+    sim_params = data_src['params'].item()
+    
+    #background_level = sim_params['background_level']
+    #scale_factor = sim_params['scale_factor']
+
+    #background_level_cps = background_level * scale_factor
+    src_start, src_stop = calculate_src_interval(sim_params)
+    src_duration = src_stop - src_start
+
+    duration = sim_params['t_stop'] - sim_params['t_start']
+
+    iteration_results = []
+    
+
+    NN = len(source_event_realizations_all)
+    NN_back = len(background_event_realizations)
+    if NN != NN_back:
+        logging.warning(f"Mismatch in realization counts: {NN} (source) vs {NN_back} (background)")
+        return []
+    if NN < NN_analysis:
+        logging.warning(f"Insufficient realizations: {NN} (source) < {NN_analysis} (required)")
+        return []
+    
+    if NN_analysis < NN:
+        source_event_realizations = source_event_realizations_all[:NN_analysis]
+        NN = NN_analysis
+    else:
+        source_event_realizations = source_event_realizations_all
+
+    for i, source_events in enumerate(source_event_realizations):
+        try:
+            background_events = background_event_realizations[i]
+            total_events = np.sort(np.concatenate([source_events, background_events]))
+            iteration_seed = sim_params['random_seed'] + i
+
+            total_src_counts = len(source_events)
+            total_bkgd_counts = len(background_events)
+
+            background_level_cps = total_bkgd_counts / duration
+            background_counts = background_level_cps * src_duration
+            try:
+                snr_fluence = total_src_counts / np.sqrt(background_counts)
+            except ZeroDivisionError:
+                snr_fluence = 0
+            #snr_fluence = total_src_counts / sigma_bkgd_counts
+            # Calculate per-realization metrics that are independent of bin width
+            total_counts_fine, _ = np.histogram(total_events, bins=int(duration / 0.001))
+            snr_dict = _calculate_multi_timescale_snr(
+                total_counts=total_counts_fine, sim_bin_width=0.001,
+                back_avg_cps=background_level_cps,
+                search_timescales=snr_timescales
+            )
+
+            base_iter_detail = {
+                'iteration': i + 1,
+                'random_seed': iteration_seed,
+                'back_avg_cps': round(background_level_cps, 2),
+                'bkgd_counts': int(background_counts),
+                'src_counts': total_src_counts,
+                'S_flu': round(snr_fluence, 2),
+                **snr_dict,
+            }
+
+            if i == 1:
+                create_final_plot(source_events=source_events,
+                                  background_events=background_events,
+                                    model_info={
+                                        'func': None,
+                                        'func_par': None,
+                                        'base_params': sim_params,
+                                        'snr_analysis': snr_timescales
+                                    },
+                                    output_info= output_info
+                                )
+
+            # Loop through analysis bin widths
+            for bin_width_ms in analysis_bin_widths_ms:
+                bin_width_s = bin_width_ms / 1000.0
+                bins = np.arange(sim_params['t_start'], sim_params['t_stop'] + bin_width_s, bin_width_s)
+                counts, _ = np.histogram(total_events, bins=bins)
+
+
+                mvt_res = haar_power_mod(counts, np.sqrt(counts), min_dt=bin_width_s, doplot=False, afactor=-1.0, verbose=False)
+                plt.close('all')
+                mvt_val = float(mvt_res[2]) * 1000
+                mvt_err = float(mvt_res[3]) * 1000
+
+
+                iter_detail = {**base_iter_detail,
+                                'analysis_bin_width_ms': bin_width_ms,
+                                'mvt_ms': round(mvt_val, 4),
+                                'mvt_err_ms': round(mvt_err, 4),
+                                **base_params}
+                iteration_results.append(iter_detail)
+
+        except Exception as e:
+            logging.warning(f"Failed analysis on realization {i} in {src_event_files[0].name}. Error: {e}")
+            for bin_width_ms in analysis_bin_widths_ms:
+                iteration_results.append({'iteration': i + 1,
+                                                'random_seed': sim_params['random_seed'] + i,
+                                                'analysis_bin_width_ms': bin_width_ms,
+                                                'mvt_ms': -100,
+                                                'mvt_err_ms': -200,
+                                                'back_avg_cps': -100,
+                                                'bkgd_counts': -100,
+                                                'src_counts': -100,
+                                                'S_flu': -100,
+                                                **base_params,
+                                                **snr_dict})
+    return iteration_results, NN
 
 
 
 
+def GBM_MVT_analysis(input_info: Dict,
+                output_info: Dict):
+    #params = input_info['base_params']
+
+    src_event_files = input_info['src_event_files']
+    back_event_files = input_info['back_event_files']
+    snr_timescales = input_info.get('snr_timescales', [0.010, 0.016, 0.032, 0.064, 0.128, 0.256])
+    analysis_bin_widths_ms = input_info['analysis_bin_widths_ms']
+    sim_params_file = input_info['sim_par_file']
+
+    if type(sim_params_file) is dict:
+        sim_params = sim_params_file
+    else:
+        sim_params = yaml.safe_load(open(sim_params_file, 'r'))
+    #sim_params = yaml.safe_load(open(sim_params_file[0], 'r'))
+    base_params = input_info['base_params']
+    #print_nested_dict(base_params)
+
+    en_lo = sim_params.get('en_lo', 8.0)
+    en_hi = sim_params.get('en_hi', 900.0)
+  
+   
+    t_start = sim_params['t_start']
+    t_stop = sim_params['t_stop']
+    det = sim_params.get('det', 'nn')
+    angle = sim_params.get('angle', 0)
+
+    energy_range_nai = (en_lo, en_hi)
+    src_start, src_stop = calculate_src_interval(sim_params)
+    src_duration = src_stop - src_start
+    duration = sim_params['t_stop'] - sim_params['t_start']
+
+    iteration_results = []
+    NN = len(src_event_files)
+    for i, src_file in enumerate(src_event_files):
+        iteration_seed = sim_params['random_seed'] + i
+        bkgd_file = back_event_files[i]
+
+        # Open the files
+        tte_src_all = GbmTte.open(src_file)
+        tte_bkgd_all = GbmTte.open(bkgd_file)
+
+        tte_src = tte_src_all.slice_time([t_start, t_stop])
+        tte_bkgd = tte_bkgd_all.slice_time([t_start, t_stop])
+
+        total_src_counts = tte_src.data.size
+        total_bkgd_counts = tte_bkgd.data.size
+        background_level_cps = total_bkgd_counts / duration
+        background_counts = background_level_cps * src_duration
+        snr_fluence = total_src_counts / np.sqrt(background_counts)
+
+        # merge the background and source
+        tte_total = GbmTte.merge([tte_src, tte_bkgd])
+
+        #try:
+        fine_bw = 0.001
+        phaii = tte_total.to_phaii(bin_by_time, fine_bw)
+        lc_total = phaii.to_lightcurve(energy_range=energy_range_nai)
+
+        snr_results_dict = _calculate_multi_timescale_snr(
+                    total_counts=lc_total.counts, sim_bin_width=0.001,
+                    back_avg_cps=total_bkgd_counts/(t_stop - t_start),
+                    search_timescales=snr_timescales
+                )
+        
+        #except Exception as e:
+        #    print(f"Error during SNR computing: {e}")
+
+        base_iter_detail = {
+                    'iteration': i + 1,
+                    'random_seed': iteration_seed,
+                    'back_avg_cps': round(background_level_cps, 2),
+                    'bkgd_counts': int(background_counts),
+                    'src_counts': total_src_counts,
+                    'S_flu': round(snr_fluence, 2),
+                    **snr_results_dict,
+                }
+
+        if i == 1:
+            create_final_gbm_plot(
+                                src_file,
+                                bkgd_file,
+                                model_info={
+                                    'func': None,
+                                    'func_par': None,
+                                    'base_params': sim_params,
+                                    'snr_analysis': snr_timescales
+                                },
+                                output_info= output_info
+                            )
+
+        # Loop through analysis bin widths
+        for bin_width_ms in analysis_bin_widths_ms:
+            try:
+                bin_width_s = bin_width_ms / 1000.0
+                phaii_hi = tte_total.to_phaii(bin_by_time, bin_width_s)
+                phaii = phaii_hi.slice_energy(energy_range_nai)
+                data = phaii.to_lightcurve()
+        
+                mvt_res = haar_power_mod(data.counts, np.sqrt(data.counts), min_dt=bin_width_s, doplot=False, afactor=-1.0, verbose=False)
+                plt.close('all')
+                mvt_val = float(mvt_res[2]) * 1000
+                mvt_err = float(mvt_res[3]) * 1000
+            except Exception as e:
+                print(f"Error during MVT calculation for bin width {bin_width_ms} ms: {e}")
+                mvt_val = -100
+                mvt_err = -100
+
+            iter_detail = {**base_iter_detail,
+                            'analysis_bin_width_ms': bin_width_ms,
+                            'mvt_ms': round(mvt_val, 4),
+                            'mvt_err_ms': round(mvt_err, 4),
+                            **base_params}
+            iteration_results.append(iter_detail)
+
+
+    return iteration_results, NN
 
 
 
@@ -604,33 +888,47 @@ def gen_GBM_pulse(trigger_number,
 
 
 def generate_function_events(
-    #event_file_path: Path,
     func: Callable,
     func_par: Tuple,
     back_func: Callable,
     back_func_par: Tuple,
-    params: Dict[str, Any]
-):
+    params: Dict[str, Any],
+    back_flag: bool = True,
+    source_flag: bool = True
+) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Runs a full TTE simulation, probabilistically splits the events into
-    source and background, and saves them to a compressed .npz file.
+    Runs a TTE simulation and returns source and/or background events based on flags.
+
+    Args:
+        ...
+        back_flag (bool): If True, simulate and return background events.
+        source_flag (bool): If True, simulate and return source events.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: A tuple containing (source_events, background_events).
+                                       An array will be empty if its flag was False.
     """
+    # If neither is requested, return empty arrays immediately
+    if not source_flag and not back_flag:
+        return np.array([]), np.array([])
+
     # Unpack necessary parameters from the dictionary
     t_start = params['t_start']
     t_stop = params['t_stop']
     random_seed = params['random_seed']
-    source_base_rate = params.get('source_base_rate', 1000.0)
-    background_base_rate = params.get('background_base_rate', 1000.0)
-    grid_resolution = params.get('grid_resolution', 0.0001) # Use a fixed, fine resolution for the integral
+    source_base_rate = params.get('scale_factor', 1.0)
+    background_base_rate = params.get('scale_factor', 1.0)
+    grid_resolution = params.get('grid_resolution', 0.0001)
 
     np.random.seed(random_seed)
 
-    # 1. Simulate the total event stream
+    # 1. Efficiently define the total rate function based on flags
     def total_rate_func(t):
-        source_rate = func(t, *func_par) * source_base_rate if func else 0
-        background_rate = back_func(t, *back_func_par) * background_base_rate if back_func else 0
+        source_rate = func(t, *func_par) * source_base_rate if source_flag and func else 0
+        background_rate = back_func(t, *back_func_par) * background_base_rate if back_flag and back_func else 0
         return source_rate + background_rate
 
+    # 2. Simulate the total required event stream
     grid_times = np.arange(t_start, t_stop, grid_resolution)
     rate_on_grid = total_rate_func(grid_times)
     cumulative_counts = np.cumsum(rate_on_grid) * grid_resolution
@@ -639,30 +937,35 @@ def generate_function_events(
     random_counts = np.random.uniform(0, total_expected_counts, num_events)
     total_event_times = np.interp(random_counts, cumulative_counts, grid_times)
 
-    # 2. Probabilistically split events into source and background
-    source_rate_at_events = func(total_event_times, *func_par) * source_base_rate
-    background_rate_at_events = back_func(total_event_times, *back_func_par) * background_base_rate
-    total_rate_at_events = source_rate_at_events + background_rate_at_events
+    # 3. Conditionally assign or split events
+    source_event_times = np.array([])
+    background_event_times = np.array([])
 
-    p_source = np.divide(source_rate_at_events, total_rate_at_events, 
-                         out=np.zeros_like(total_rate_at_events), 
-                         where=total_rate_at_events > 0)
-    
-    is_source_event = np.random.rand(num_events) < p_source
-    
-    source_event_times = np.sort(total_event_times[is_source_event])
-    background_event_times = np.sort(total_event_times[~is_source_event])
+    if source_flag and back_flag:
+        # If we need both, we must do the probabilistic split
+        source_rate_at_events = func(total_event_times, *func_par) * source_base_rate
+        background_rate_at_events = back_func(total_event_times, *back_func_par) * background_base_rate
+        total_rate_at_events = source_rate_at_events + background_rate_at_events
 
-    # 3. Save the classified events to a single .npz file
-    """
-    np.savez_compressed(
-        event_file_path,
-        source_events=source_event_times,
-        background_events=background_event_times,
-        params=params # Save the simulation parameters for later reference
-    )
-    """
-    return source_event_times, background_event_times, params
+        p_source = np.divide(source_rate_at_events, total_rate_at_events,
+                             out=np.zeros_like(total_rate_at_events),
+                             where=total_rate_at_events > 0)
+        
+        is_source_event = np.random.rand(num_events) < p_source
+        source_event_times = np.sort(total_event_times[is_source_event])
+        background_event_times = np.sort(total_event_times[~is_source_event])
+
+    elif source_flag:
+        # If we only simulated the source, all events are source events
+        source_event_times = np.sort(total_event_times)
+
+    elif back_flag:
+        # If we only simulated the background, all events are background events
+        background_event_times = np.sort(total_event_times)
+
+    return source_event_times, background_event_times
+
+
 
 
 
@@ -672,8 +975,10 @@ def generate_gbm_events(
         func_par: Tuple,
         back_func: Callable,
         back_func_par: Tuple,
-        back_flag: True,
-        params: Dict[str, Any]):
+        params: Dict[str, Any],
+        back_flag: bool = True,
+        source_flag: bool = True,
+        det_flag: bool = False):
 
     det = params['det']
     trigger_number = params['trigger_number']
@@ -682,17 +987,23 @@ def generate_gbm_events(
     en_hi = params['en_hi']
     t_start = params['t_start']
     t_stop = params['t_stop']
+
+    select_time = (t_start, t_stop)
     random_seed = params['random_seed']
     grid_resolution = params.get('grid_resolution', 0.0001) # Use a fixed, fine
 
     energy_range_nai = (en_lo, en_hi)
-    bkgd_times = [(-20.0, -5.0), (75.0, 200.0)]
+    #print(f"angle: {type(params['angle2'])}")
+    raw_intervals = params['background_intervals']
+    bkgd_times = parse_intervals_from_csv(raw_intervals)  #[(-20.0, -5.0), (75.0, 200.0)]
+    #print(f"Background intervals: {type(bkgd_times)}")
+    #print(type(bkgd_times))
 
     # Fixed spectral Model
     band_params = (0.1, 300.0, -1.0, -2.5)
 
     #tte = GbmTte.open('glg_tte_n6_bn250612519_v00.fit')
-    folder_path = os.path.join(os.getcwd(), 'data_rmf')
+    folder_path = os.path.join(os.getcwd(), f'bn{trigger_number}')
 
     tte_pattern = f'{folder_path}/glg_tte_n{det}_bn{trigger_number}_v*.fit'
     tte_files = glob.glob(tte_pattern)
@@ -708,44 +1019,49 @@ def generate_gbm_events(
     if not rsp2_files:
         raise FileNotFoundError(f"No RSP2 file found matching pattern: {rsp2_pattern}")
     rsp2_file = rsp2_files[0]  # Assuming only one file/version per det/trigger_number
+    rsp2 = GbmRsp2.open(rsp2_file)
+    rsp = rsp2.extract_drm(atime=np.average(select_time))
+
+    # Use the .name property to get the descriptive base filename
+    base_filename = event_file_path.name
+    src_filename = f"{base_filename}_src.fits"
+    bkgd_filename = f"{base_filename}_bkgd.fits"
 
     # Open the files
     tte = GbmTte.open(tte_file)
-    rsp2 = GbmRsp2.open(rsp2_file)
-
-    # bin to 1.024 s resolution, reference time is trigger time
-    phaii = tte.to_phaii(bin_by_time, 1.024, time_ref=0.0)
-    bkgd_times = bkgd_times
-    backfitter = BackgroundFitter.from_phaii(phaii, Polynomial, time_ranges=bkgd_times)
-    
-    backfitter.fit(order=1)
-    bkgd = backfitter.interpolate_bins(phaii.data.tstart, phaii.data.tstop)
-    
-    select_time = (t_start, t_stop)
-    # the background model integrated over the source selection time
-    spec_bkgd = bkgd.integrate_time(*select_time)
-    rsp = rsp2.extract_drm(atime=np.average(select_time))
     tte_demo = tte.slice_time([-50,-49.99])
-    
-    # Use the .name property to get the descriptive base filename
-    base_filename = event_file_path.name
 
+
+    if source_flag:
     # source simulation
-    tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, deadtime=1e-6, sample_period=grid_resolution, rng=np.random.default_rng(random_seed))
-    tte_src = tte_sim.to_tte(t_start, t_stop)
-    tte_gbm_src = GbmTte.merge([tte_demo, tte_src])
-    # Construct the new FITS filenames
-    src_filename = f"{base_filename}_src.fits"
-    # Save the files to the correct directory with the new names
-    tte_gbm_src.write(filename=src_filename, directory=event_file_path.parent, overwrite=True)
+        tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, deadtime=1e-6, sample_period=grid_resolution, rng=np.random.default_rng(random_seed))
+        tte_src = tte_sim.to_tte(t_start, t_stop)
+        tte_gbm_src = GbmTte.merge([tte_demo, tte_src])
+        # Construct the new FITS filenames
+        
+        # Save the files to the correct directory with the new names
+        tte_gbm_src.write(filename=src_filename, directory=event_file_path.parent, overwrite=True)
 
     if back_flag:
+        #bin to 1.024 s resolution, reference time is trigger time
+        phaii = tte.to_phaii(bin_by_time, 1.024, time_ref=0.0)
+        bkgd_times = bkgd_times
+        backfitter = BackgroundFitter.from_phaii(phaii, Polynomial, time_ranges=bkgd_times)
+        backfitter.fit(order=1)
+        bkgd = backfitter.interpolate_bins(phaii.data.tstart, phaii.data.tstop)
+        
+        # the background model integrated over the source selection time
+        spec_bkgd = bkgd.integrate_time(*select_time)
+        
         # background simulation
         tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, deadtime=1e-6, sample_period=grid_resolution, rng=np.random.default_rng(random_seed))
         tte_bkgd = tte_sim.to_tte(t_start, t_stop)
         tte_gbm_bkgd = GbmTte.merge([tte_demo, tte_bkgd])
-        bkgd_filename = f"{base_filename}_bkgd.fits"
         tte_gbm_bkgd.write(filename=bkgd_filename, directory=event_file_path.parent, overwrite=True)
+        src_path = event_file_path.parent / src_filename
+        bkgd_path = event_file_path.parent / bkgd_filename
+
+    return src_path, bkgd_path
 
 
 

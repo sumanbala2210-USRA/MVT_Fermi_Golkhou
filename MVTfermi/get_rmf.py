@@ -5,9 +5,10 @@ def main(trigger_number, nai='n1'):
     """
     Main function to execute the getGBMdata script with command line arguments.
     """
+    path = os.path.join(os.getcwd(), f"bn{trigger_number}")
     # Example command to run the script
-    command = f"getGBMdata bn {trigger_number} -dest bn{trigger_number} --data cspec_rsp2 tte --nai {nai} -protocol a"
-    command = f"getGBMdata bn {trigger_number} -dest bn{trigger_number} --data tte --nai {nai} -protocol a"
+    command = f"getGBMdata -dest {path}  bn {trigger_number} --data cspec_rsp2 tte --nai {nai} -protocol a"
+    #command = f"getGBMdata -dest {path}  bn {trigger_number} --data tte --nai {nai} -protocol a"
 
     # Execute the command
     os.system(command)
