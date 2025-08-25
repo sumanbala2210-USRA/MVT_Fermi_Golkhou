@@ -182,103 +182,128 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
 
     
     for bin_width, group_df in detailed_df.groupby('analysis_bin_width_ms'):
-
-        
-
         # The subset of those where the error was also valid
         valid_runs = group_df[group_df['mvt_err_ms'] > 0]
-        # Statistics are calculated ONLY on the valid runs
-        p16, median_mvt, p84 = np.percentile(valid_runs['mvt_ms'], [16, 50, 84])
-        # Use the 68% confidence interval width as a robust measure of "sigma"
-        ci_width = p84 - p16
-        # Set plot limits to be wide enough to see the distribution, but not the extreme outliers
-        data_min = max(0, p16 - 3 * ci_width)
-        data_max = p84 + 10 * ci_width #
-        #data_max = np.percentile(all_positive_runs['mvt_ms'], 99.5) if not all_positive_runs.empty else p84 + 3 * ci_width
+        if len(valid_runs) >= 2:
+            # Statistics are calculated ONLY on the valid runs
+            p16, median_mvt, p84 = np.percentile(valid_runs['mvt_ms'], [16, 50, 84])
+            # Use the 68% confidence interval width as a robust measure of "sigma"
+            ci_width = p84 - p16
+            # Set plot limits to be wide enough to see the distribution, but not the extreme outliers
+            data_min = max(0, p16 - 3 * ci_width)
+            data_max = p84 + 10 * ci_width #
+            #data_max = np.percentile(all_positive_runs['mvt_ms'], 99.5) if not all_positive_runs.empty else p84 + 3 * ci_width
 
-        # <<< 1. Get data for BOTH sets >>>
-        # All runs where MVT produced a positive timescale
-        all_dist_flag = True
-        try:
-            all_positive_runs = group_df[(group_df['mvt_ms'] > 0) & (group_df['mvt_ms'] < 1e5)]
-            all_p16, all_median_mvt, all_p84 = np.percentile(all_positive_runs['mvt_ms'], [16, 50, 84])
-        except:
-            all_dist_flag = False
-            all_p16, all_median_mvt, all_p84 = (0, 0, 0)
+            # <<< 1. Get data for BOTH sets >>>
+            # All runs where MVT produced a positive timescale
+            all_dist_flag = True
+            try:
+                all_positive_runs = group_df[(group_df['mvt_ms'] > 0) & (group_df['mvt_ms'] < 1e5)]
+                all_p16, all_median_mvt, all_p84 = np.percentile(all_positive_runs['mvt_ms'], [16, 50, 84])
+            except:
+                all_dist_flag = False
+                all_p16, all_median_mvt, all_p84 = (0, 0, 0)
 
-        # --- Create the Enhanced MVT Distribution Plot ---
-        fig, ax = plt.subplots(figsize=(10, 6))
+            # --- Create the Enhanced MVT Distribution Plot ---
+            fig, ax = plt.subplots(figsize=(10, 6))
 
-        # <<< 2. Plot the background histogram of ALL non-failed runs in gray >>>
-        if not all_positive_runs.empty and all_dist_flag:
-            ax.hist(all_positive_runs['mvt_ms'], bins=30, density=True, 
-                        label=f'All Runs w/ MVT > 0 ({len(all_positive_runs)}/{NN})',
-                        color='gray', alpha=0.5, histtype='stepfilled', edgecolor='none', zorder=1)
-            # Overlay the statistics from the valid runs
-            ax.axvline(all_median_mvt, color='k', linestyle='-', lw=1.0,
-                    label=f"Median = {all_median_mvt:.3f} ms")
-            #ax.axvspan(all_p16, all_p84, color='k', alpha=0.1, hatch='///',
-           #label=f"68% C.I. [{all_p16:.3f}, {all_p84:.3f}]")
+            # <<< 2. Plot the background histogram of ALL non-failed runs in gray >>>
+            if not all_positive_runs.empty and all_dist_flag:
+                ax.hist(all_positive_runs['mvt_ms'], bins=30, density=True, 
+                            label=f'All Runs w/ MVT > 0 ({len(all_positive_runs)}/{NN})',
+                            color='gray', alpha=0.5, histtype='stepfilled', edgecolor='none', zorder=1)
+                # Overlay the statistics from the valid runs
+                ax.axvline(all_median_mvt, color='k', linestyle='-', lw=1.0,
+                        label=f"Median = {all_median_mvt:.3f} ms")
+                #ax.axvspan(all_p16, all_p84, color='k', alpha=0.1, hatch='///',
+            #label=f"68% C.I. [{all_p16:.3f}, {all_p84:.3f}]")
 
-            ax.axvspan(all_p16, all_p84, color='gray', alpha=0.1,
-                    label=f"68% C.I. [{all_p16:.3f}, {all_p84:.3f}]")
+                ax.axvspan(all_p16, all_p84, color='gray', alpha=0.1,
+                        label=f"68% C.I. [{all_p16:.3f}, {all_p84:.3f}]")
 
-        # <<< 3. Plot the main histogram of VALID runs (err > 0) on top >>>
-        if len(valid_runs) > 2:
-            ax.hist(valid_runs['mvt_ms'], bins=30, density=True, 
-                    label=f'Valid Runs w/ Err > 0 ({len(valid_runs)}/{NN})',
-                    color='steelblue', histtype='stepfilled', edgecolor='black', zorder=2) 
+            # <<< 3. Plot the main histogram of VALID runs (err > 0) on top >>>
+            if len(valid_runs) > 2:
+                ax.hist(valid_runs['mvt_ms'], bins=30, density=True, 
+                        label=f'Valid Runs w/ Err > 0 ({len(valid_runs)}/{NN})',
+                        color='steelblue', histtype='stepfilled', edgecolor='black', zorder=2) 
 
-            # Overlay the statistics from the valid runs
-            ax.axvline(median_mvt, color='firebrick', linestyle='-', lw=2.5,
-                    label=f"Median = {median_mvt:.3f} ms")
-            #ax.axvspan(p16, p84, color='darkorange', alpha=0.3,
-            #        label=f"68% C.I. [{p16:.3f}, {p84:.3f}]")
-            ax.axvline(p16, color='orange', linestyle='--', lw=1)
-            ax.axvline(p84, color='orange', linestyle='--', lw=1)
-            ax.axvspan(p16, p84, color='darkorange', alpha=0.1, hatch='///',
-                    label=f"68% C.I. [{p16:.3f}, {p84:.3f}]")
-            
-        auto_min, auto_max = ax.get_xlim()
-        final_min = max(auto_min, data_min)
-        final_max = min(auto_max, data_max)
+                # Overlay the statistics from the valid runs
+                ax.axvline(median_mvt, color='firebrick', linestyle='-', lw=2.5,
+                        label=f"Median = {median_mvt:.3f} ms")
+                #ax.axvspan(p16, p84, color='darkorange', alpha=0.3,
+                #        label=f"68% C.I. [{p16:.3f}, {p84:.3f}]")
+                ax.axvline(p16, color='orange', linestyle='--', lw=1)
+                ax.axvline(p84, color='orange', linestyle='--', lw=1)
+                ax.axvspan(p16, p84, color='darkorange', alpha=0.1, hatch='///',
+                        label=f"68% C.I. [{p16:.3f}, {p84:.3f}]")
+                
+            auto_min, auto_max = ax.get_xlim()
+            final_min = max(auto_min, data_min)
+            final_max = min(auto_max, data_max)
 
-        # Formatting
-        ax.set_xlim(final_min, final_max)
-        ax.set_ylim(bottom=0)
-        ax.set_title(f"MVT: {param_dir.name}\nBin Width: {bin_width} ms", fontsize=12)
-        ax.set_xlabel("Minimum Variability Timescale (ms)")
-        ax.set_ylabel("Probability Density")
-        ax.legend()
-        fig.tight_layout()
-        plt.savefig(output_analysis_path / f"MVT_dis_{param_dir.name}_{bin_width}ms.png", dpi=300)
-        plt.close(fig)
+            # Formatting
+            ax.set_xlim(final_min, final_max)
+            ax.set_ylim(bottom=0)
+            ax.set_title(f"MVT: {param_dir.name}\nBin Width: {bin_width} ms", fontsize=12)
+            ax.set_xlabel("Minimum Variability Timescale (ms)")
+            ax.set_ylabel("Probability Density")
+            ax.legend()
+            fig.tight_layout()
+            plt.savefig(output_analysis_path / f"MVT_dis_{param_dir.name}_{bin_width}ms.png", dpi=300)
+            plt.close(fig)
 
-        #exit()
-        # Build the standardized final output dictionary
-        result_data = {
-            **base_params, 'analysis_bin_width_ms': bin_width,
-            'total_sim': NN, 'successful_runs': len(valid_runs),
-            'failed_runs': len(group_df) - len(valid_runs),
-            'median_mvt_ms': round(median_mvt, 4),
-            'mvt_err_lower': round(median_mvt - p16, 4),
-            'mvt_err_upper': round(p84 - median_mvt, 4),
-            'all_median_mvt_ms': round(all_median_mvt, 4),
-            'all_mvt_err_lower': round(all_median_mvt - all_p16, 4),
-            'all_mvt_err_upper': round(all_p84 - all_median_mvt, 4),
-            'mean_src_counts': round(valid_runs['src_counts'].mean(), 2),
-            'mean_bkgd_counts': round(valid_runs['bkgd_counts'].mean(), 2),
-            'S_flu': round(valid_runs['S_flu'].mean(), 2),
-            'S16': round(valid_runs['S16'].mean(), 2),
-            'S32': round(valid_runs['S32'].mean(), 2),
-            'S64': round(valid_runs['S64'].mean(), 2),
-            'S128': round(valid_runs['S128'].mean(), 2),
-            'S256': round(valid_runs['S256'].mean(), 2),
-            'mean_back_avg': round(valid_runs['back_avg_cps'].mean(), 2),
-            'trigger': sim_params['trigger_number'],
-            'det': sim_params['det'],
-            'angle': sim_params['angle'],
-        }
+            #exit()
+            # Build the standardized final output dictionary
+            result_data = {
+                **base_params, 'analysis_bin_width_ms': bin_width,
+                'total_sim': NN, 'successful_runs': len(valid_runs),
+                'failed_runs': len(group_df) - len(valid_runs),
+                'median_mvt_ms': round(median_mvt, 4),
+                'mvt_err_lower': round(median_mvt - p16, 4),
+                'mvt_err_upper': round(p84 - median_mvt, 4),
+                'all_median_mvt_ms': round(all_median_mvt, 4),
+                'all_mvt_err_lower': round(all_median_mvt - all_p16, 4),
+                'all_mvt_err_upper': round(all_p84 - all_median_mvt, 4),
+                'mean_src_counts': round(valid_runs['src_counts'].mean(), 2),
+                'mean_bkgd_counts': round(valid_runs['bkgd_counts'].mean(), 2),
+                'S_flu': round(valid_runs['S_flu'].mean(), 2),
+                'S16': round(valid_runs['S16'].mean(), 2),
+                'S32': round(valid_runs['S32'].mean(), 2),
+                'S64': round(valid_runs['S64'].mean(), 2),
+                'S128': round(valid_runs['S128'].mean(), 2),
+                'S256': round(valid_runs['S256'].mean(), 2),
+                'mean_back_avg': round(valid_runs['back_avg_cps'].mean(), 2),
+                'trigger': sim_params['trigger_number'],
+                'det': sim_params['det'],
+                'angle': sim_params['angle'],
+            }
+        else:
+            logging.warning(f"Creating dummy row for {param_dir.name} at bin width {bin_width}ms due to insufficient valid runs ({len(valid_runs)}).")
+            result_data = {
+                **base_params, 'analysis_bin_width_ms': bin_width,
+                'total_sim': NN, 'successful_runs': len(valid_runs),
+                'failed_runs': len(group_df) - len(valid_runs),
+                'median_mvt_ms': -100,
+                'mvt_err_lower': -100,
+                'mvt_err_upper': -100,
+                'all_median_mvt_ms': -100,
+                'all_mvt_err_lower': -100,
+                'all_mvt_err_upper': -100,
+                'mean_src_counts': round(valid_runs['src_counts'].mean(), 2),
+                'mean_bkgd_counts': round(valid_runs['bkgd_counts'].mean(), 2),
+                'S_flu': round(valid_runs['S_flu'].mean(), 2),
+                'S16': round(valid_runs['S16'].mean(), 2),
+                'S32': round(valid_runs['S32'].mean(), 2),
+                'S64': round(valid_runs['S64'].mean(), 2),
+                'S128': round(valid_runs['S128'].mean(), 2),
+                'S256': round(valid_runs['S256'].mean(), 2),
+                'mean_back_avg': round(valid_runs['back_avg_cps'].mean(), 2),
+                'trigger': sim_params['trigger_number'],
+                'det': sim_params['det'],
+                'angle': sim_params['angle'],
+            }
+
+
         
         final_dict = {}
 
