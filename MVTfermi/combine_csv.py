@@ -10,7 +10,8 @@ loc_dist = [
     "run_25_08_25-08_58",
     "run_25_08_25-10_32",
     #"run_1em3_25_08_25-10_49",
-    "run_.1_25_08_25-12_14",
+    "run_0.1_25_08_25-12_14",
+    "run_0.01_25_08_25-13_16"
 ]
 
 path = os.path.join(os.getcwd(), "01_ANALYSIS_RESULTS")
@@ -23,7 +24,10 @@ output_file = os.path.join(path, f"gauss_combined{now}.csv")
 dfs = []
 for f in files:
     if os.path.exists(f):
-        dfs.append(pd.read_csv(f))
+        df = pd.read_csv(f)
+        if "sigma" in df.columns:
+            df["sigma"] = df["sigma"] * 1000
+        dfs.append(df)
     else:
         print(f"Warning: File not found -> {f}")
 
