@@ -19,8 +19,9 @@ from astropy.io.fits.verify import VerifyWarning
 from typing import Dict, Any, Tuple, Optional
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable, Tuple
 import logging
+import pandas as pd
 
 import re
 from typing import List
@@ -30,7 +31,6 @@ from gdt.core.binning.unbinned import bin_by_time
 from gdt.core.plot.lightcurve import Lightcurve
 #from gdt.core.simulate.profiles import tophat, constant, norris, quadratic, linear, gaussian
 from gdt.core.simulate.tte import TteBackgroundSimulator, TteSourceSimulator
-from gdt.core.simulate.pha import PhaSimulator
 from gdt.core.spectra.functions import Band
 from gdt.missions.fermi.gbm.response import GbmRsp2
 from gdt.missions.fermi.gbm.tte import GbmTte
@@ -39,27 +39,53 @@ from gdt.core.background.fitter import BackgroundFitter
 from gdt.core.background.binned import Polynomial
 import matplotlib.pyplot as plt
 from gdt.core.plot.lightcurve import Lightcurve
-from gdt.core.plot.model import ModelFit
 from gdt.core.tte import PhotonList
-from gdt.core.plot.spectrum import Spectrum
-from haar_power_mod import haar_power_mod
-from sim_functions import constant2, gaussian2, triangular, fred, constant, norris, gaussian, lognormal
+
+from SIM_lib import run_mvt_in_subprocess
 # Suppress a common FITS warning
-import concurrent.futures
+
 from astropy.io.fits.verify import VerifyWarning
 warnings.simplefilter('ignore', category=VerifyWarning)
 
 #warnings.simplefilter('ignore', VerifyWarning)
 
-MAX_WORKERS = os.cpu_count() - 2
-const_par = (1, )
-fred_par = (0.5, 0.0, 0.05, 0.1)
-gauss_params = (.5, 0.0, 0.1)
+def sim_gbm_name_format(trigger_number, det, name_key, r_seed):
+    """
+    Formats the simulation name for GBM files.
+    """
+    if r_seed is None:
+
+        src_name = f"TTE_bn{trigger_number}_{det}_{name_key}_src.fits"
+        bkgd_name = f"TTE_bn{trigger_number}_{det}_{name_key}_bkgd.fits"
+    else:
+        src_name = f"TTE_bn{trigger_number}_{det}_{name_key}_r_seed_{r_seed}_src.fits"
+        bkgd_name = f"TTE_bn{trigger_number}_{det}_{name_key}_r_seed_{r_seed}_bkgd.fits"
+        
+    #print("Source Name:", src_name)
+    #print("Background Name:", bkgd_name)
+    return src_name, bkgd_name
 
 
+def convert_det_to_list(det_string):
+    """
+    Converts a comma-separated string to a list,
+    prepending 'n' to each element.
+    """
+    # 1. Split the input string into a list of smaller strings
+    if type(det_string) is list:
+        return det_string
+    elif isinstance(det_string, str):
+        elements = det_string.split(',')
+    #    - f"n{...}" formats it into the desired 'nx' string.
+        new_list = []
+        for element in elements:
+            element = element.strip()
+            if element[0] == 'n':
+                new_list.append(element)
+            else:
+                new_list.append(f"n{element}")
 
-from typing import Dict, Any, Tuple, Callable
-
+        return new_list
 
 
 def print_nested_dict(d, indent=0):
@@ -91,7 +117,9 @@ def print_nested_dict(d, indent=0):
     else:
         print(f"{spacing}{repr(d)}")
 
-from typing import Dict, Any
+
+
+
 
 def flatten_dict(d: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -417,8 +445,8 @@ def create_final_plot(
         #print_nested_dict(params)
         func_to_use = model_info['func']
         func_par = model_info['func_par']
-        fig_name = output_info['file_path'] / f"LC_{output_info['file_name']}.png"
-        base_title = f" LC {output_info['file_name']}"
+        fig_name = output_info['file_path'] / f"LC_{output_info['file_info']}.png"
+        base_title = f" LC {output_info['file_info']}"
         t_start, t_stop = params['t_start'], params['t_stop']
         background_level_cps = params['background_level']* params.get('scale_factor', 1.0)
         
@@ -496,9 +524,10 @@ def create_final_plot(
         #logging.error(f"Failed to generate representative plot. Error: {e}")
 
 
-def create_final_gbm_plot(
-                src_event_file,
-                back_event_file,
+
+
+def plot_gbm_lc(tte_total, tte_src, tte_bkgd,
+                bkgd_cps,
                 model_info: Dict,
                 output_info: Dict):
     params = model_info['base_params']
@@ -508,10 +537,6 @@ def create_final_gbm_plot(
     
     en_lo = params.get('en_lo', 8.0)
     en_hi = params.get('en_hi', 900.0)
-
-    #fig_name = params.get('fig_name', None)
-    t_start = params['t_start'] if 't_start' in params else -5.0
-    t_stop = params['t_stop'] if 't_stop' in params else 5.0
 
     #print(params)
     trigger_number = params['trigger_number'] if 'trigger_number' in params else 0
@@ -523,94 +548,149 @@ def create_final_gbm_plot(
     func_to_use = model_info.get('func', None)
     func_par = model_info.get('func_par', {})
     fig_name = output_info['file_path'] / f"LC_{output_info['file_name']}.png"
-    base_title = f" LC {output_info['file_name']}"
+    
 
     energy_range_nai = (en_lo, en_hi)
 
-    # Open the files
-    tte_src_all = GbmTte.open(src_event_file)
-    tte_bkgd_all = GbmTte.open(back_event_file)
+    fine_bw = 0.001
+    phaii = tte_total.to_phaii(bin_by_time, fine_bw)
 
-    tte_src = tte_src_all.slice_time([t_start, t_stop])
-    tte_bkgd = tte_bkgd_all.slice_time([t_start, t_stop])
-    total_bkgd_counts = tte_bkgd.data.size
-    #print("Tstart:", t_start, "Tstop:", t_stop)
-    bkgd_cps = total_bkgd_counts/(t_stop - t_start)
-    #print(f"Background counts: {total_bkgd_counts}, Background CPS: {bkgd_cps}")
-
-    # merge the background and source
-    tte_total = GbmTte.merge([tte_src, tte_bkgd])
+    phaii = tte_total.to_phaii(bin_by_time, fine_bw)
+    phii_src = tte_src.to_phaii(bin_by_time, fine_bw)
+    phii_bkgd = tte_bkgd.to_phaii(bin_by_time, fine_bw)
+    lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
+    lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
+    lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
 
     try:
-        fine_bw = 0.001
-        phaii = tte_total.to_phaii(bin_by_time, fine_bw)
+        #lcplot = Lightcurve(data=phaii.to_lightcurve(energy_range=energy_range_nai))
+        lcplot = Lightcurve(data=lc_tot)
+        lcplot.add_selection(lc_src)
+        lcplot.add_selection(lc_bkgd)
+        lcplot.selections[1].color = 'pink'
+        lcplot.selections[0].color = 'green'
+        lcplot.selections[0].alpha = 1
+        lcplot.selections[1].alpha = 0.5
 
-        phaii = tte_total.to_phaii(bin_by_time, fine_bw)
-        phii_src = tte_src.to_phaii(bin_by_time, fine_bw)
-        phii_bkgd = tte_bkgd.to_phaii(bin_by_time, fine_bw)
-        lc_tot = phaii.to_lightcurve(energy_range=energy_range_nai)
-        lc_src = phii_src.to_lightcurve(energy_range=energy_range_nai)
-        lc_bkgd = phii_bkgd.to_lightcurve(energy_range=energy_range_nai)
+        #x_low = func_par[1] - func_par[1]
+        #x_high = func_par[1] + func_par[1]
+        #plt.xlim(x_low, x_high)
+        lcplot.errorbars.hide()
+
+
+        ######### SNR Calculation #########
+    except Exception as e:
+        print(f"Error during plotting: {e}")
+        lcplot = None
+
+    snr_results_dict = _calculate_multi_timescale_snr(
+                total_counts=lc_tot.counts, sim_bin_width=0.001,
+                back_avg_cps= bkgd_cps,
+                search_timescales=model_info['snr_analysis']
+            )
+    
+    # <<< NEW: Format SNR results for the title >>>
+    snr_annotation_parts = []
+    for ts, snr_val in snr_results_dict.items():
+        label = f"S$_{{{ts[1:]}}}$" # Use LaTeX for subscript
+        value = f"{snr_val:.1f}"
+        snr_annotation_parts.append(f"{label}={value}")
+    SNR_text = "; ".join(snr_annotation_parts)
+    if output_info["combine_flag"]:
+        base_title = f" LC {output_info['file_info']}"
+        final_title = f'Bn{trigger_number}, {det}, {angle} det,' + f"{base_title}\n{SNR_text}"
+    else:
+        base_title = f" LC {output_info['file_name']}"
+        final_title = f"{base_title}\n{SNR_text}"
+
+    # <<< NEW: Format model parameters for the annotation box >>>
+    if func_to_use is not None:
+        annotation_text = _format_params_for_annotation(func_to_use, func_par)
+        if annotation_text:
+            props = dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.7)
+            plt.text(0.03, 0.97, annotation_text, transform=plt.gca().transAxes, fontsize=9,
+                    verticalalignment='top', horizontalalignment='left', bbox=props)
+
+
+    if fig_name is None:
+        fig_name = f'lc_{trigger_number}_n{det}_{angle}deg.png'
+
+    plt.title(final_title, fontsize=10)
+
+    plt.savefig(fig_name, dpi=300)
+    plt.close()
+
+
+
+def create_final_gbm_plot(
+                src_event_list,
+                back_event_list,
+                model_info: Dict,
+                output_info: Dict):
+    params = model_info['base_params']
+    #params = model_info.get('params', {})
+    #print_nested_dict(params)
+
+    #fig_name = params.get('fig_name', None)
+    t_start = params['t_start'] if 't_start' in params else -5.0
+    t_stop = params['t_stop'] if 't_stop' in params else 5.0
+    trange = [t_start, t_stop]
+
+
+    for src_event_file, back_event_file in zip(src_event_list, back_event_list):
+        #print(type(src_event_file), type(back_event_file))
+        # Open the files
+        tte_src = GbmTte.open(src_event_file).slice_time(trange)
+        tte_bkgd = GbmTte.open(back_event_file).slice_time(trange)
+
+        #tte_src = tte_src_all.slice_time([t_start, t_stop])
+        #tte_bkgd = tte_bkgd_all.slice_time([t_start, t_stop])
+        total_bkgd_counts = tte_bkgd.data.size
+        #print("Tstart:", t_start, "Tstop:", t_stop)
+        bkgd_cps = total_bkgd_counts/(t_stop - t_start)
+        #print(f"Background counts: {total_bkgd_counts}, Background CPS: {bkgd_cps}")
+
+        # merge the background and source
+        tte_total = GbmTte.merge([tte_src, tte_bkgd])
+
+        output_info["file_name"] = src_event_file.stem
+        output_info["combine_flag"] = False
 
         try:
-            #lcplot = Lightcurve(data=phaii.to_lightcurve(energy_range=energy_range_nai))
-            lcplot = Lightcurve(data=lc_tot)
-            lcplot.add_selection(lc_src)
-            lcplot.add_selection(lc_bkgd)
-            lcplot.selections[1].color = 'pink'
-            lcplot.selections[0].color = 'green'
-            lcplot.selections[0].alpha = 1
-            lcplot.selections[1].alpha = 0.5
-
-            #x_low = func_par[1] - func_par[1]
-            #x_high = func_par[1] + func_par[1]
-            #plt.xlim(x_low, x_high)
-            lcplot.errorbars.hide()
-
-
-            ######### SNR Calculation #########
+            plot_gbm_lc(tte_total, tte_src, tte_bkgd,
+                        bkgd_cps,
+                        model_info=model_info,
+                        output_info=output_info
+                        )
         except Exception as e:
-            print(f"Error during plotting: {e}")
-            lcplot = None
-
-        snr_results_dict = _calculate_multi_timescale_snr(
-                    total_counts=lc_tot.counts, sim_bin_width=0.001,
-                    back_avg_cps= bkgd_cps,
-                    search_timescales=model_info['snr_analysis']
-                )
-        
-        # <<< NEW: Format SNR results for the title >>>
-        snr_annotation_parts = []
-        for ts, snr_val in snr_results_dict.items():
-            label = f"S$_{{{ts[1:]}}}$" # Use LaTeX for subscript
-            value = f"{snr_val:.1f}"
-            snr_annotation_parts.append(f"{label}={value}")
-        SNR_text = "; ".join(snr_annotation_parts)
-        final_title = f'Bn{trigger_number}, n{det}, {angle}deg,' + f"{base_title}\n{SNR_text}"
-
-        # <<< NEW: Format model parameters for the annotation box >>>
-        if func_to_use is not None:
-            annotation_text = _format_params_for_annotation(func_to_use, func_par)
-            if annotation_text:
-                props = dict(boxstyle='round,pad=0.5', facecolor='wheat', alpha=0.7)
-                plt.text(0.03, 0.97, annotation_text, transform=plt.gca().transAxes, fontsize=9,
-                        verticalalignment='top', horizontalalignment='left', bbox=props)
-
-
-        if fig_name is None:
-            fig_name = f'lc_{trigger_number}_n{det}_{angle}deg.png'
-
-        
-
-        #plt.show()
-
-        plt.title(final_title, fontsize=10)
-
-        plt.savefig(fig_name, dpi=300)
-        plt.close()
+            print(f"Failed to generate representative GBM plot. Error: {e}")
     
-    except Exception as e:
-        print(f"Failed to generate representative GBM plot. Error: {e}")
+    if len(src_event_list) > 1:
+        src_tte_list = []
+        bkgd_tte_list = []
+        for i, src_file_path in enumerate(src_event_list):
+            src_tte_list.append(GbmTte.open(src_file_path).slice_time(trange))
+            bkgd_tte_list.append(GbmTte.open(back_event_list[i]).slice_time(trange))
+
+        tte_src = GbmTte.merge(src_tte_list)
+        tte_bkgd = GbmTte.merge(bkgd_tte_list)
+        total_bkgd_counts = tte_bkgd.data.size
+        #print("Tstart:", t_start, "Tstop:", t_stop)
+        bkgd_cps = total_bkgd_counts/(t_stop - t_start)
+        #print(f"Background counts: {total_bkgd_counts}, Background CPS: {bkgd_cps}")
+
+        # merge the background and source
+        tte_total = GbmTte.merge([tte_src, tte_bkgd])
+        output_info["file_name"] = 'combined_' + src_event_file.stem
+        output_info["combine_flag"] = True
+        try:
+            plot_gbm_lc(tte_total, tte_src, tte_bkgd,
+                        bkgd_cps,
+                        model_info=model_info,
+                        output_info=output_info
+                        )
+        except Exception as e:
+            print(f"Failed to generate representative GBM plot. Error: {e}")
 
 
 
@@ -619,8 +699,11 @@ def Function_MVT_analysis(input_info: Dict,
                            output_info: Dict):
     #params = input_info['base_params']
 
-    src_event_files = input_info['src_event_files']
-    back_event_files = input_info['back_event_files']
+    sim_data_path = input_info['sim_data_path']
+    src_event_files = sorted(sim_data_path.glob('*_src.npz'))
+    back_event_files = sorted(sim_data_path.glob('*_bkgd.npz'))
+    if not src_event_files or not back_event_files:
+        logging.error(f"No source or background event files found in {sim_data_path}")
 
     sim_params_file = input_info['sim_par_file']
 
@@ -645,7 +728,7 @@ def Function_MVT_analysis(input_info: Dict,
     base_params = input_info['base_params']
     NN_analysis = base_params['num_analysis']
     snr_timescales = input_info.get('snr_timescales', [0.010, 0.016, 0.032, 0.064, 0.128])
-    analysis_bin_widths_ms = input_info['analysis_bin_widths_ms']
+    bin_width_ms = input_info['bin_width_ms']
 
 
     source_event_realizations_all = data_src['realizations']
@@ -725,40 +808,40 @@ def Function_MVT_analysis(input_info: Dict,
                                     output_info= output_info
                                 )
 
-            # Loop through analysis bin widths
-            for bin_width_ms in analysis_bin_widths_ms:
-                bin_width_s = bin_width_ms / 1000.0
-                bins = np.arange(sim_params['t_start'], sim_params['t_stop'] + bin_width_s, bin_width_s)
-                counts, _ = np.histogram(total_events, bins=bins)
+            # Loop through analysis bin width
+            bin_width_s = bin_width_ms / 1000.0
+            bins = np.arange(sim_params['t_start'], sim_params['t_stop'] + bin_width_s, bin_width_s)
+            counts, _ = np.histogram(total_events, bins=bins)
+
+            mvt_res = run_mvt_in_subprocess(
+                            counts=counts,
+                            bin_width_s=bin_width_s
+                        )
+            plt.close('all')
+            mvt_val = float(mvt_res[2]) * 1000
+            mvt_err = float(mvt_res[3]) * 1000
 
 
-                mvt_res = haar_power_mod(counts, np.sqrt(counts), min_dt=bin_width_s, doplot=False, afactor=-1.0, verbose=False)
-                plt.close('all')
-                mvt_val = float(mvt_res[2]) * 1000
-                mvt_err = float(mvt_res[3]) * 1000
-
-
-                iter_detail = {**base_iter_detail,
-                                'analysis_bin_width_ms': bin_width_ms,
-                                'mvt_ms': round(mvt_val, 4),
-                                'mvt_err_ms': round(mvt_err, 4),
-                                **base_params}
-                iteration_results.append(iter_detail)
+            iter_detail = {**base_iter_detail,
+                            'analysis_bin_width_ms': bin_width_ms,
+                            'mvt_ms': round(mvt_val, 4),
+                            'mvt_err_ms': round(mvt_err, 4),
+                            **base_params}
+            iteration_results.append(iter_detail)
 
         except Exception as e:
             logging.warning(f"Failed analysis on realization {i} in {src_event_files[0].name}. Error: {e}")
-            for bin_width_ms in analysis_bin_widths_ms:
-                iteration_results.append({'iteration': i + 1,
-                                                'random_seed': sim_params['random_seed'] + i,
-                                                'analysis_bin_width_ms': bin_width_ms,
-                                                'mvt_ms': -100,
-                                                'mvt_err_ms': -200,
-                                                'back_avg_cps': -100,
-                                                'bkgd_counts': -100,
-                                                'src_counts': -100,
-                                                'S_flu': -100,
-                                                **base_params,
-                                                **snr_dict})
+            iteration_results.append({'iteration': i + 1,
+                                            'random_seed': sim_params['random_seed'] + i,
+                                            'analysis_bin_width_ms': bin_width_ms,
+                                            'mvt_ms': -100,
+                                            'mvt_err_ms': -200,
+                                            'back_avg_cps': -100,
+                                            'bkgd_counts': -100,
+                                            'src_counts': -100,
+                                            'S_flu': -100,
+                                            **base_params,
+                                            **snr_dict})
     return iteration_results, NN
 
 
@@ -768,10 +851,9 @@ def GBM_MVT_analysis(input_info: Dict,
                 output_info: Dict):
     #params = input_info['base_params']
 
-    src_event_files = input_info['src_event_files']
-    back_event_files = input_info['back_event_files']
+    
     snr_timescales = input_info.get('snr_timescales', [0.010, 0.016, 0.032, 0.064, 0.128, 0.256])
-    analysis_bin_widths_ms = input_info['analysis_bin_widths_ms']
+    bin_width_ms = input_info['bin_width_ms']
     sim_params_file = input_info['sim_par_file']
 
     if type(sim_params_file) is dict:
@@ -788,13 +870,20 @@ def GBM_MVT_analysis(input_info: Dict,
    
     t_start = sim_params['t_start']
     t_stop = sim_params['t_stop']
-    det = sim_params.get('det', 'nn')
-    angle = sim_params.get('angle', 0)
+    det = sim_params['det']
+    angle = sim_params['angle']
 
     energy_range_nai = (en_lo, en_hi)
     src_start, src_stop = calculate_src_interval(sim_params)
     src_duration = src_stop - src_start
     duration = sim_params['t_stop'] - sim_params['t_start']
+
+
+
+    ############ Change names ############
+
+    src_event_files = input_info['src_event_files']
+    back_event_files = input_info['back_event_files']
 
     iteration_results = []
     NN = len(src_event_files)
@@ -842,7 +931,7 @@ def GBM_MVT_analysis(input_info: Dict,
                     **snr_results_dict,
                 }
 
-        if i == 1:
+        if i == 1000000:
             create_final_gbm_plot(
                                 src_file,
                                 bkgd_file,
@@ -856,31 +945,232 @@ def GBM_MVT_analysis(input_info: Dict,
                             )
 
         # Loop through analysis bin widths
-        for bin_width_ms in analysis_bin_widths_ms:
-            try:
-                bin_width_s = bin_width_ms / 1000.0
-                phaii_hi = tte_total.to_phaii(bin_by_time, bin_width_s)
-                phaii = phaii_hi.slice_energy(energy_range_nai)
-                data = phaii.to_lightcurve()
-        
-                mvt_res = haar_power_mod(data.counts, np.sqrt(data.counts), min_dt=bin_width_s, doplot=False, afactor=-1.0, verbose=False)
-                plt.close('all')
-                mvt_val = float(mvt_res[2]) * 1000
-                mvt_err = float(mvt_res[3]) * 1000
-            except Exception as e:
-                print(f"Error during MVT calculation for bin width {bin_width_ms} ms: {e}")
-                mvt_val = -100
-                mvt_err = -100
 
-            iter_detail = {**base_iter_detail,
-                            'analysis_bin_width_ms': bin_width_ms,
-                            'mvt_ms': round(mvt_val, 4),
-                            'mvt_err_ms': round(mvt_err, 4),
-                            **base_params}
-            iteration_results.append(iter_detail)
+        try:
+            bin_width_s = bin_width_ms / 1000.0
+            phaii_hi = tte_total.to_phaii(bin_by_time, bin_width_s)
+            phaii = phaii_hi.slice_energy(energy_range_nai)
+            data = phaii.to_lightcurve()
+
+            mvt_res = run_mvt_in_subprocess(data.counts, bin_width_s=bin_width_s)
+            plt.close('all')
+            mvt_val = float(mvt_res[2]) * 1000
+            mvt_err = float(mvt_res[3]) * 1000
+        except Exception as e:
+            print(f"Error during MVT calculation for bin width {bin_width_ms} ms: {e}")
+            mvt_val = -100
+            mvt_err = -100
+
+        iter_detail = {**base_iter_detail,
+                        'analysis_bin_width_ms': bin_width_ms,
+                        'mvt_ms': round(mvt_val, 4),
+                        'mvt_err_ms': round(mvt_err, 4),
+                        **sim_params}
+        iteration_results.append(iter_detail)
 
 
     return iteration_results, NN
+
+
+
+
+
+def GBM_MVT_analysis_det(input_info: Dict,
+                output_info: Dict):
+    #params = input_info['base_params']
+    sim_data_path = input_info['sim_data_path']
+    snr_timescales = input_info.get('snr_timescales', [0.010, 0.016, 0.032, 0.064, 0.128, 0.256])
+    bin_width_ms = input_info['bin_width_ms']
+    sim_params_file = input_info['sim_par_file']
+
+    if type(sim_params_file) is dict:
+        sim_params = sim_params_file
+    else:
+        sim_params = yaml.safe_load(open(sim_params_file, 'r'))
+    #sim_params = yaml.safe_load(open(sim_params_file[0], 'r'))
+    base_params = input_info['base_params']
+    NN_analysis = base_params['num_analysis']
+    #print_nested_dict(base_params)
+
+    en_lo = sim_params.get('en_lo', 8.0)
+    en_hi = sim_params.get('en_hi', 900.0)
+  
+   
+    t_start = sim_params['t_start']
+    t_stop = sim_params['t_stop']
+    trange = [t_start, t_stop]
+    dets = sim_params.get('det', 'nn') 
+    #print("Detector:", det)
+    angle = sim_params.get('angle', 0)
+    trigger_number = sim_params.get('trigger_number', 0)
+    name_key = sim_params.get('name_key', 'test')
+
+    energy_range_nai = (en_lo, en_hi)
+    src_start, src_stop = calculate_src_interval(sim_params)
+    src_duration = src_stop - src_start
+    duration = sim_params['t_stop'] - sim_params['t_start']
+
+
+
+    for det in dets:
+        src_filename, bkgd_filename = sim_gbm_name_format(
+                trigger_number=trigger_number,
+                det=det,
+                name_key=name_key,
+                r_seed='*'
+            )
+        
+        src_event_file_list = list(sim_data_path.glob(src_filename))
+        bkgd_event_file_list = list(sim_data_path.glob(bkgd_filename))
+        #print(f"Source files: {src_event_file_list[0]}")
+        #print(f"Background files: {bkgd_event_file_list[0]}")
+        if len(src_event_file_list) != len(bkgd_event_file_list):
+            logging.error(f"GBM analysis for {output_info['file_info']} has mismatched source and background files.")
+        if len(src_event_file_list) < NN_analysis:
+            print("####################################################")
+            print(f"GBM analysis for {output_info['file_info']} has insufficient files ({len(src_event_file_list)} < {NN_analysis}).")
+            print("####################################################")
+
+    iteration_results = []
+    #NN = len(src_event_files)
+    for i in range(NN_analysis):
+        iteration_seed = sim_params['random_seed'] + i
+
+        src_tte_list = []
+        bkgd_tte_list = []
+        for det in dets:
+            src_filename, bkgd_filename = sim_gbm_name_format(
+                trigger_number=trigger_number,
+                det=det,
+                name_key=name_key,
+                r_seed=iteration_seed
+            )
+            src_file_path = sim_data_path / src_filename
+            bkgd_file_path = sim_data_path / bkgd_filename
+            #src_tte_list.append(str(src_file_path))
+            #bkgd_tte_list.append(str(bkgd_file_path))
+            src_tte_list.append(GbmTte.open(str(src_file_path)).slice_time(trange))
+            bkgd_tte_list.append(GbmTte.open(str(bkgd_file_path)).slice_time(trange))
+
+        tte_src = GbmTte.merge(src_tte_list)
+        tte_bkgd = GbmTte.merge(bkgd_tte_list)
+
+        # Open the files
+        #tte_src_all = GbmTte.open(src_file)
+        #tte_bkgd_all = GbmTte.open(bkgd_file)
+
+        #tte_src = tte_src_all.slice_time([t_start, t_stop])
+        #tte_bkgd = tte_bkgd_all.slice_time([t_start, t_stop])
+
+        total_src_counts = tte_src.data.size
+        total_bkgd_counts = tte_bkgd.data.size
+        background_level_cps = total_bkgd_counts / duration
+        background_counts = background_level_cps * src_duration
+        snr_fluence = total_src_counts / np.sqrt(background_counts)
+
+        # merge the background and source
+        tte_total = GbmTte.merge([tte_src, tte_bkgd])
+
+        #try:
+        fine_bw = 0.001
+        phaii = tte_total.to_phaii(bin_by_time, fine_bw)
+        lc_total = phaii.to_lightcurve(energy_range=energy_range_nai)
+
+        snr_results_dict = _calculate_multi_timescale_snr(
+                    total_counts=lc_total.counts, sim_bin_width=0.001,
+                    back_avg_cps=total_bkgd_counts/(t_stop - t_start),
+                    search_timescales=snr_timescales
+                )
+        
+        #except Exception as e:
+        #    print(f"Error during SNR computing: {e}")
+
+        base_iter_detail = {
+                    'iteration': i + 1,
+                    'random_seed': iteration_seed,
+                    'back_avg_cps': round(background_level_cps, 2),
+                    'bkgd_counts': int(background_counts),
+                    'src_counts': total_src_counts,
+                    'S_flu': round(snr_fluence, 2),
+                    **snr_results_dict,
+                }
+
+        if i == 1:
+            output_info["file_name"] = 'combined_' + src_file_path.stem
+            output_info["combine_flag"] = True
+            try:
+                plot_gbm_lc(tte_total, tte_src, tte_bkgd,
+                            bkgd_cps=background_counts,
+                            model_info={
+                                    'func': None,
+                                    'func_par': None,
+                                    'base_params': sim_params,
+                                    'snr_analysis': snr_timescales
+                                },
+                                output_info=output_info
+                        )
+            except Exception as e:
+                print(f"Failed to generate representative GBM plot. Error: {e}")
+            
+            """
+            src_tte_list_plot = []
+            bkgd_tte_list_plot = []
+            for det in dets:
+                src_filename, bkgd_filename = sim_gbm_name_format(
+                    trigger_number=trigger_number,
+                    det=det,
+                    name_key=name_key,
+                    r_seed=iteration_seed
+                )
+                src_file_path = sim_data_path / src_filename
+                bkgd_file_path = sim_data_path / bkgd_filename
+                #src_tte_list.append(str(src_file_path))
+                #bkgd_tte_list.append(str(bkgd_file_path))
+                src_tte_list_plot.append(src_file_path)
+                bkgd_tte_list_plot.append(bkgd_file_path)
+
+            output_info["file_name"] = f"{output_info['file_info']}_combined"
+            output_info["combine_flag"] = True
+            create_final_gbm_plot(
+                                src_tte_list_plot,
+                                bkgd_tte_list_plot,
+                                model_info={
+                                    'func': None,
+                                    'func_par': None,
+                                    'base_params': sim_params,
+                                    'snr_analysis': snr_timescales
+                                },
+                                output_info=output_info
+                            )
+            """
+
+        # Loop through analysis bin widths
+
+        try:
+            bin_width_s = bin_width_ms / 1000.0
+            phaii_hi = tte_total.to_phaii(bin_by_time, bin_width_s)
+            phaii = phaii_hi.slice_energy(energy_range_nai)
+            data = phaii.to_lightcurve()
+
+            mvt_res = run_mvt_in_subprocess(data.counts, bin_width_s=bin_width_s)
+            plt.close('all')
+            mvt_val = float(mvt_res[2]) * 1000
+            mvt_err = float(mvt_res[3]) * 1000
+        except Exception as e:
+            print(f"Error during MVT calculation for bin width {bin_width_ms} ms: {e}")
+            mvt_val = -100
+            mvt_err = -100
+
+        iter_detail = {**base_iter_detail,
+                        'analysis_bin_width_ms': bin_width_ms,
+                        'mvt_ms': round(mvt_val, 4),
+                        'mvt_err_ms': round(mvt_err, 4),
+                        **sim_params}
+        iteration_results.append(iter_detail)
+
+
+    return iteration_results, NN_analysis
+
 
 
 
@@ -1063,6 +1353,110 @@ def generate_gbm_events(
 
     return src_path, bkgd_path
 
+def generate_gbm_events_dets(
+        event_file_path: Path,
+        func: Callable,
+        func_par: Tuple,
+        back_func: Callable,
+        back_func_par: Tuple,
+        params: Dict[str, Any],
+        back_flag: bool = True,
+        source_flag: bool = True,
+        det_flag: bool = False):
+
+    #dets = params['det']
+    trigger_number = params['trigger_number']
+    angle = params['angle']
+    en_lo = params['en_lo']
+    en_hi = params['en_hi']
+    t_start = params['t_start']
+    t_stop = params['t_stop']
+
+    select_time = (t_start, t_stop)
+    random_seed = params['random_seed']
+    grid_resolution = params.get('grid_resolution', 0.0001) # Use a fixed, fine
+
+    energy_range_nai = (en_lo, en_hi)
+    #print(f"angle: {type(params['angle2'])}")
+    raw_intervals = params['background_intervals']
+    bkgd_times = parse_intervals_from_csv(raw_intervals)  #[(-20.0, -5.0), (75.0, 200.0)]
+    #print(f"Background intervals: {type(bkgd_times)}")
+    #print(type(bkgd_times))
+
+    # Fixed spectral Model
+    band_params = (0.1, 300.0, -1.0, -2.5)
+
+    #tte = GbmTte.open('glg_tte_n6_bn250612519_v00.fit')
+    folder_path = os.path.join(os.getcwd(), f'bn{trigger_number}')
+    dets = convert_det_to_list(params['det'])
+    #print(f"Detectors: {dets}")
+
+    src_file_list = []
+    bkgd_file_list = []
+    for det in dets:
+        tte_pattern = f'{folder_path}/glg_tte_{det}_bn{trigger_number}_v*.fit'
+        tte_files = glob.glob(tte_pattern)
+
+        if not tte_files:
+            raise FileNotFoundError(f"No TTE file found matching pattern: {tte_pattern}")
+        tte_file = tte_files[0]  # Assuming only one file/version per det/trigger_number
+
+        # Find the RSP2 file (e.g., glg_cspec_n3_bn230307053_v03.rsp2)
+        rsp2_pattern = f'{folder_path}/glg_cspec_{det}_bn{trigger_number}_v*.rsp2'
+        rsp2_files = glob.glob(rsp2_pattern)
+
+        if not rsp2_files:
+            raise FileNotFoundError(f"No RSP2 file found matching pattern: {rsp2_pattern}")
+        rsp2_file = rsp2_files[0]  # Assuming only one file/version per det/trigger_number
+        rsp2 = GbmRsp2.open(rsp2_file)
+        rsp = rsp2.extract_drm(atime=np.average(select_time))
+
+        # Use the .name property to get the descriptive base filename
+        base_filename = event_file_path.name
+        src_filename, bkgd_filename = sim_gbm_name_format(
+            trigger_number=trigger_number,
+            det=det,
+            name_key=base_filename,
+            r_seed=None
+        )
+        src_path = event_file_path.parent / src_filename
+        bkgd_path = event_file_path.parent / bkgd_filename
+        # Open the files
+        tte = GbmTte.open(tte_file)
+        tte_demo = tte.slice_time([-50,-49.99])
+
+
+        if source_flag:
+        # source simulation
+            tte_sim = TteSourceSimulator(rsp, Band(), band_params, func, func_par, deadtime=1e-6, sample_period=grid_resolution, rng=np.random.default_rng(random_seed))
+            tte_src = tte_sim.to_tte(t_start, t_stop)
+            tte_gbm_src = GbmTte.merge([tte_demo, tte_src])
+            # Construct the new FITS filenames
+            
+            # Save the files to the correct directory with the new names
+            tte_gbm_src.write(filename=src_filename, directory=event_file_path.parent, overwrite=True)
+
+        if back_flag:
+            #bin to 1.024 s resolution, reference time is trigger time
+            phaii = tte.to_phaii(bin_by_time, 1.024, time_ref=0.0)
+            bkgd_times = bkgd_times
+            backfitter = BackgroundFitter.from_phaii(phaii, Polynomial, time_ranges=bkgd_times)
+            backfitter.fit(order=1)
+            bkgd = backfitter.interpolate_bins(phaii.data.tstart, phaii.data.tstop)
+            
+            # the background model integrated over the source selection time
+            spec_bkgd = bkgd.integrate_time(*select_time)
+            
+            # background simulation
+            tte_sim = TteBackgroundSimulator(spec_bkgd, 'Gaussian', back_func, back_func_par, deadtime=1e-6, sample_period=grid_resolution, rng=np.random.default_rng(random_seed))
+            tte_bkgd = tte_sim.to_tte(t_start, t_stop)
+            tte_gbm_bkgd = GbmTte.merge([tte_demo, tte_bkgd])
+            tte_gbm_bkgd.write(filename=bkgd_filename, directory=event_file_path.parent, overwrite=True)
+        
+        src_file_list.append(src_path)
+        bkgd_file_list.append(bkgd_path)
+
+    return src_file_list, bkgd_file_list
 
 
 if __name__ == '__main__':
@@ -1098,9 +1492,9 @@ if __name__ == '__main__':
     results = gen_pulse(
         t_start=-10.0,
         t_stop=10.0,
-        func=gaussian,
+        #func=gaussian,
         func_par=gauss_params,
-        back_func=constant,
+        #back_func=constant,
         back_func_par=const_par,
         bin_width=0.0001,
         fig_name='test_gaussian.png',
@@ -1110,29 +1504,3 @@ if __name__ == '__main__':
     print(f"Generated pulse with times: {results[0]}, counts: {results[1]},source max cps: {results[2]}, background avg cps: {results[3]}, SNR: {results[4]}")
 
 
-
-"""
-
-# 1. Define the parameters for your complex model
-pulse_params = {
-    'background_level': 100.0,
-    'main_amplitude': 5000.0,
-    'pulse_list': [
-        ('fred', (1.0, 0.0, 0.1, 1.0)),      # A strong FRED pulse
-        ('gaussian', (0.5, 2.5, 0.2)) # A weaker Gaussian pulse later
-    ]
-}
-
-# 2. Call the advanced simulation function
-# Notice func_par now just contains the single dictionary
-times, counts, _, _, _ = gen_pulse_advanced(
-    t_start=-5.0,
-    t_stop=10.0,
-    func=generate_rate_function,
-    func_par=(pulse_params,), # Pass the dictionary as a tuple
-    back_func=None,           # Background is handled inside the new function
-    bin_width=0.01,
-    source_base_rate=1.0,     # The rates are now absolute, so base rate is 1
-    fig_name='complex_grb_pulse.png'
-)
-"""

@@ -20,19 +20,12 @@ from tqdm import tqdm
 from typing import Dict, Any, List
 import matplotlib.pyplot as plt
 
-from SIM_lib import _parse_param, e_n, _create_param_directory_name, PULSE_MODEL_MAP, RELEVANT_NAMING_KEYS, SIMULATION_REGISTRY, send_email
+from SIM_lib import _parse_param, e_n, _create_param_directory_name, send_email
 
 
-from TTE_SIM_v2 import GBM_MVT_analysis, Function_MVT_analysis, print_nested_dict, check_param_consistency, flatten_dict
-# ========= PLACEHOLDERS FOR YOUR CUSTOM MODULES =========
-# In a real project, these would be imported from your library files.
-try:
-    from haar_power_mod import haar_power_mod
-except ImportError:
-    logging.warning("Could not import 'haar_power_mod'. Using a dummy function.")
-    def haar_power_mod(*args, **kwargs):
-        # Returns dummy data: [status, num_bins, mvt, mvt_err]
-        return [0, 100, np.random.uniform(10, 50), np.random.uniform(1, 5)]
+from TTE_SIM_v2 import GBM_MVT_analysis, Function_MVT_analysis, print_nested_dict, check_param_consistency, flatten_dict, convert_det_to_list, GBM_MVT_analysis_det
+
+
 
 # ========= USER SETTINGS =========
 MAX_WORKERS = os.cpu_count() - 2
@@ -43,6 +36,7 @@ RESULTS_FILE_NAME = "final_summary_results.csv"
 def generate_analysis_tasks(config: Dict[str, Any]) -> 'Generator':
     data_path = Path(config['project_settings']['data_path'])
     analysis_settings = config['analysis_settings']
+    bin_widths_to_analyze_ms = analysis_settings.get('bin_widths_to_analyze_ms', [])
     pulse_definitions = config.get('pulse_definitions', {})
 
     for campaign in config.get('simulation_campaigns', []):
@@ -60,12 +54,7 @@ def generate_analysis_tasks(config: Dict[str, Any]) -> 'Generator':
                 df_triggers = pd.read_csv(variable_params_config.pop('trigger_set_file'))
                 variable_params_config['trigger_set'] = df_triggers.to_dict('records')
 
-            #final_constants = {}
-            #final_constants.update(campaign.get('constants', {}))
             total_sim_analysis = campaign['constants'].get('total_sim', 100)
-            #final_constants.update(base_pulse_config.get('constants', {}))
-            #final_constants.update(pulse_override_constants)
-            #final_constants['pulse_shape'] = pulse_shape
 
             param_names = list(variable_params_config.keys())
             param_values = [_parse_param(v) for v in variable_params_config.values()]
@@ -78,12 +67,13 @@ def generate_analysis_tasks(config: Dict[str, Any]) -> 'Generator':
                 #print(f"ANALYSIS_SCRIPT --- Looking for: {param_dir_path}")
 
                 if param_dir_path.exists():
-                    yield {
-                        'param_dir_path': param_dir_path,
-                        'base_params': {**current_variable_params, 'pulse_shape': pulse_shape,
-                                        'sim_type': sim_type, 'num_analysis': total_sim_analysis},
-                        'analysis_settings': analysis_settings,
-                    }
+                    for bin_width_ms in bin_widths_to_analyze_ms:
+                        yield {
+                            'param_dir_path': param_dir_path,
+                            'base_params': {**current_variable_params, 'pulse_shape': pulse_shape, 'sim_type': sim_type, 'num_analysis': total_sim_analysis},
+                            'analysis_settings': analysis_settings,
+                            'bin_width_to_process_ms': bin_width_ms # Pass the specific bin width for this task
+                        }
 
 
 
@@ -101,13 +91,18 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
     param_dir = task_info['param_dir_path']
     base_params = task_info['base_params']
     analysis_settings = task_info['analysis_settings']
+    bin_width = task_info['bin_width_to_process_ms']
     sim_type = base_params['sim_type']
+
+    #print_nested_dict(base_params)
+    
+    print_nested_dict(base_params)
 
     # <<< Define standard keys and defaults from your original script >>>
     ALL_PULSE_PARAMS = ['sigma', 'center_time', 'width', 'peak_time_ratio', 'start_time', 'rise_time', 'decay_time']
     DEFAULT_PARAM_VALUE = -999
     STANDARD_KEYS = [
-        'sim_type', 'pulse_shape', 'peak_amplitude', 'analysis_bin_width_ms',
+        'sim_type', 'pulse_shape', 'peak_amplitude', 'bin_width_ms',
         'total_sim', 'successful_runs', 'failed_runs',
         'median_mvt_ms', 'mvt_err_lower', 'mvt_err_upper',
         'all_median_mvt_ms', 'all_mvt_err_lower', 'all_mvt_err_upper',
@@ -134,77 +129,67 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
 
     # --- 2. Load Data and Perform Per-Realization Analysis ---
     if sim_type == 'gbm':
-        src_files = sorted(param_dir.glob('*_src.fits'))
-        back_files = sorted(param_dir.glob('*_bkgd.fits'))
+        dets = convert_det_to_list(base_params['trigger_set']['det'])
+        base_params['trigger_set']['det'] = dets
+        #src_files = sorted(param_dir.glob('*_src.fits'))
+        #back_files = sorted(param_dir.glob('*_bkgd.fits'))
         #NN = len(src_files)
         #print(f"Found simulation parameter files: {sim_param_file}")
-        if not src_files or not back_files:
-            logging.warning(f"GBM analysis for {param_dir.name} has missing files.")
-            return []
+        #if not src_files or not back_files:
+        #    logging.warning(f"GBM analysis for {param_dir.name} has missing files.")
+        #    return []
 
-        iteration_results, NN = GBM_MVT_analysis(input_info={
-            'src_event_files': src_files,
-            'back_event_files': back_files,
+        iteration_results, NN = GBM_MVT_analysis_det(input_info={
+            'sim_data_path': param_dir,
             'sim_par_file': sim_params,
             'base_params': base_params,
             'snr_timescales': analysis_settings['snr_timescales'],
-            'analysis_bin_widths_ms': analysis_settings['bin_widths_to_analyze_ms']},
+            'bin_width_ms': bin_width},
             output_info = { 'file_path': output_analysis_path,
-                        'file_name': param_dir.name})
+                        'file_info': param_dir.name})
         
 
     else: # sim_type == 'function'
-        src_files = sorted(param_dir.glob('*_src.npz'))
-        back_files = sorted(param_dir.glob('*_bkgd.npz'))
-        if not src_files or not back_files: return []
-        #NN = len(src_files)
-
         iteration_results, NN = Function_MVT_analysis(input_info={
-            'src_event_files': src_files,
-            'back_event_files': back_files,
+            'sim_data_path': param_dir,
             'sim_par_file': sim_params,
             'base_params': base_params,
             'snr_timescales': analysis_settings['snr_timescales'],
-            'analysis_bin_widths_ms': analysis_settings['bin_widths_to_analyze_ms']},
+            'bin_width_ms': bin_width},
             output_info={ 'file_path': output_analysis_path,
-                         'file_name': param_dir.name})
+                         'file_info': param_dir.name})
 
 
     # --- 3. Aggregate Results (This logic is common to both data types) ---
     if not iteration_results: return []
+    final_summary_list = []
 
     detailed_df = pd.DataFrame(iteration_results)
     detailed_df.to_csv(output_analysis_path / f"Detailed_{param_dir.name}.csv", index=False)
 
-    # Inside analyze_one_group, after creating detailed_df
-    final_summary_list = []
     # Loop through the DataFrame grouped by the analysis bin width
+    valid_runs = detailed_df[detailed_df['mvt_err_ms'] > 0]
+    if len(valid_runs) >= 2:
+        # Statistics are calculated ONLY on the valid runs
+        p16, median_mvt, p84 = np.percentile(valid_runs['mvt_ms'], [16, 50, 84])
+        # Use the 68% confidence interval width as a robust measure of "sigma"
+        ci_width = p84 - p16
+        # Set plot limits to be wide enough to see the distribution, but not the extreme outliers
+        data_min = max(0, p16 - 3 * ci_width)
+        data_max = p84 + 10 * ci_width #
+        #data_max = np.percentile(all_positive_runs['mvt_ms'], 99.5) if not all_positive_runs.empty else p84 + 3 * ci_width
 
-    
-    for bin_width, group_df in detailed_df.groupby('analysis_bin_width_ms'):
-        # The subset of those where the error was also valid
-        valid_runs = group_df[group_df['mvt_err_ms'] > 0]
-        if len(valid_runs) >= 2:
-            # Statistics are calculated ONLY on the valid runs
-            p16, median_mvt, p84 = np.percentile(valid_runs['mvt_ms'], [16, 50, 84])
-            # Use the 68% confidence interval width as a robust measure of "sigma"
-            ci_width = p84 - p16
-            # Set plot limits to be wide enough to see the distribution, but not the extreme outliers
-            data_min = max(0, p16 - 3 * ci_width)
-            data_max = p84 + 10 * ci_width #
-            #data_max = np.percentile(all_positive_runs['mvt_ms'], 99.5) if not all_positive_runs.empty else p84 + 3 * ci_width
+        # All runs where MVT produced a positive timescale
+        all_dist_flag = True
+        try:
+            all_positive_runs = detailed_df[(detailed_df['mvt_ms'] > 0) & (detailed_df['mvt_ms'] < 1e5)]
+            all_p16, all_median_mvt, all_p84 = np.percentile(all_positive_runs['mvt_ms'], [16, 50, 84])
+        except:
+            all_dist_flag = False
+            all_p16, all_median_mvt, all_p84 = (0, 0, 0)
 
-            # <<< 1. Get data for BOTH sets >>>
-            # All runs where MVT produced a positive timescale
-            all_dist_flag = True
-            try:
-                all_positive_runs = group_df[(group_df['mvt_ms'] > 0) & (group_df['mvt_ms'] < 1e5)]
-                all_p16, all_median_mvt, all_p84 = np.percentile(all_positive_runs['mvt_ms'], [16, 50, 84])
-            except:
-                all_dist_flag = False
-                all_p16, all_median_mvt, all_p84 = (0, 0, 0)
-
-            # --- Create the Enhanced MVT Distribution Plot ---
+        # --- Create the Enhanced MVT Distribution Plot ---
+        try:
             fig, ax = plt.subplots(figsize=(10, 6))
 
             # <<< 2. Plot the background histogram of ALL non-failed runs in gray >>>
@@ -251,80 +236,69 @@ def analyze_one_group(task_info: Dict, data_path: Path, results_path: Path) -> L
             fig.tight_layout()
             plt.savefig(output_analysis_path / f"MVT_dis_{param_dir.name}_{bin_width}ms.png", dpi=300)
             plt.close(fig)
+        except Exception as e:
+            logging.error(f"Error creating MVT distribution plot for {param_dir.name} at bin width {bin_width}ms: {e}")
 
-            #exit()
-            # Build the standardized final output dictionary
-            result_data = {
-                **base_params, 'analysis_bin_width_ms': bin_width,
-                'total_sim': NN, 'successful_runs': len(valid_runs),
-                'failed_runs': len(group_df) - len(valid_runs),
-                'median_mvt_ms': round(median_mvt, 4),
-                'mvt_err_lower': round(median_mvt - p16, 4),
-                'mvt_err_upper': round(p84 - median_mvt, 4),
-                'all_median_mvt_ms': round(all_median_mvt, 4),
-                'all_mvt_err_lower': round(all_median_mvt - all_p16, 4),
-                'all_mvt_err_upper': round(all_p84 - all_median_mvt, 4),
-                'mean_src_counts': round(valid_runs['src_counts'].mean(), 2),
-                'mean_bkgd_counts': round(valid_runs['bkgd_counts'].mean(), 2),
-                'S_flu': round(valid_runs['S_flu'].mean(), 2),
-                'S16': round(valid_runs['S16'].mean(), 2),
-                'S32': round(valid_runs['S32'].mean(), 2),
-                'S64': round(valid_runs['S64'].mean(), 2),
-                'S128': round(valid_runs['S128'].mean(), 2),
-                'S256': round(valid_runs['S256'].mean(), 2),
-                'mean_back_avg': round(valid_runs['back_avg_cps'].mean(), 2),
-                'trigger': sim_params['trigger_number'],
-                'det': sim_params['det'],
-                'angle': sim_params['angle'],
-            }
-        else:
-            logging.warning(f"Creating dummy row for {param_dir.name} at bin width {bin_width}ms due to insufficient valid runs ({len(valid_runs)}).")
-            result_data = {
-                **base_params, 'analysis_bin_width_ms': bin_width,
-                'total_sim': NN, 'successful_runs': len(valid_runs),
-                'failed_runs': len(group_df) - len(valid_runs),
-                'median_mvt_ms': -100,
-                'mvt_err_lower': -100,
-                'mvt_err_upper': -100,
-                'all_median_mvt_ms': -100,
-                'all_mvt_err_lower': -100,
-                'all_mvt_err_upper': -100,
-                'mean_src_counts': round(valid_runs['src_counts'].mean(), 2),
-                'mean_bkgd_counts': round(valid_runs['bkgd_counts'].mean(), 2),
-                'S_flu': round(valid_runs['S_flu'].mean(), 2),
-                'S16': round(valid_runs['S16'].mean(), 2),
-                'S32': round(valid_runs['S32'].mean(), 2),
-                'S64': round(valid_runs['S64'].mean(), 2),
-                'S128': round(valid_runs['S128'].mean(), 2),
-                'S256': round(valid_runs['S256'].mean(), 2),
-                'mean_back_avg': round(valid_runs['back_avg_cps'].mean(), 2),
-                'trigger': sim_params['trigger_number'],
-                'det': sim_params['det'],
-                'angle': sim_params['angle'],
-            }
+        #exit()
+        # Build the standardized final output dictionary
+        result_data = {
+            **base_params, 'bin_width_ms': bin_width,
+            'total_sim': NN, 'successful_runs': len(valid_runs),
+            'failed_runs': len(detailed_df) - len(valid_runs),
+            'median_mvt_ms': round(median_mvt, 4),
+            'mvt_err_lower': round(median_mvt - p16, 4),
+            'mvt_err_upper': round(p84 - median_mvt, 4),
+            'all_median_mvt_ms': round(all_median_mvt, 4),
+            'all_mvt_err_lower': round(all_median_mvt - all_p16, 4),
+            'all_mvt_err_upper': round(all_p84 - all_median_mvt, 4),
+            'mean_src_counts': round(valid_runs['src_counts'].mean(), 2),
+            'mean_bkgd_counts': round(valid_runs['bkgd_counts'].mean(), 2),
+            'S_flu': round(valid_runs['S_flu'].mean(), 2),
+            'S16': round(valid_runs['S16'].mean(), 2),
+            'S32': round(valid_runs['S32'].mean(), 2),
+            'S64': round(valid_runs['S64'].mean(), 2),
+            'S128': round(valid_runs['S128'].mean(), 2),
+            'S256': round(valid_runs['S256'].mean(), 2),
+            'mean_back_avg': round(valid_runs['back_avg_cps'].mean(), 2),
+            'trigger': sim_params['trigger_number'],
+            'det': sim_params['det'],
+            'angle': sim_params['angle'],
+        }
+    else:
+        logging.warning(f"Creating dummy row for {param_dir.name} at bin width {bin_width}ms due to insufficient valid runs ({len(valid_runs)}).")
+        result_data = {
+            **base_params, 'bin_width_ms': bin_width,
+            'total_sim': NN, 'successful_runs': len(valid_runs),
+            'failed_runs': len(detailed_df) - len(valid_runs),
+            'median_mvt_ms': -100,
+            'mvt_err_lower': -100,
+            'mvt_err_upper': -100,
+            'all_median_mvt_ms': -100,
+            'all_mvt_err_lower': -100,
+            'all_mvt_err_upper': -100,
+            'mean_src_counts': round(valid_runs['src_counts'].mean(), 2),
+            'mean_bkgd_counts': round(valid_runs['bkgd_counts'].mean(), 2),
+            'S_flu': round(valid_runs['S_flu'].mean(), 2),
+            'S16': round(valid_runs['S16'].mean(), 2),
+            'S32': round(valid_runs['S32'].mean(), 2),
+            'S64': round(valid_runs['S64'].mean(), 2),
+            'S128': round(valid_runs['S128'].mean(), 2),
+            'S256': round(valid_runs['S256'].mean(), 2),
+            'mean_back_avg': round(valid_runs['back_avg_cps'].mean(), 2),
+            'trigger': sim_params['trigger_number'],
+            'det': sim_params['det'],
+            'angle': sim_params['angle'],
+        }
 
-
-        
-        final_dict = {}
-
-        """        # Populate with standard keys and any varying physical parameters
-        print(f"BASE PARAMS: {base_params}")
-        all_keys = STANDARD_KEYS + list(base_params.get('trigger_set', {}).keys())
-        #all_keys.pop('trigger_set')
-        for key in all_keys: final_dict[key] = result_data.get(key)
-        # Fill in any non-applicable pulse parameters with a default
-        for key in ALL_PULSE_PARAMS:
-            if key not in final_dict: final_dict[key] = DEFAULT_PARAM_VALUE
-        """
-
-        for key in STANDARD_KEYS:
-            final_dict[key] = result_data.get(key)
-        
-        # Add all possible pulse parameter keys, using the default value if a key is not in this run's result_data
-        for key in ALL_PULSE_PARAMS:
-            final_dict[key] = result_data.get(key, DEFAULT_PARAM_VALUE)
-        
-        final_summary_list.append(final_dict)
+    final_dict = {}
+    for key in STANDARD_KEYS:
+        final_dict[key] = result_data.get(key)
+    
+    # Add all possible pulse parameter keys, using the default value if a key is not in this run's result_data
+    for key in ALL_PULSE_PARAMS:
+        final_dict[key] = result_data.get(key, DEFAULT_PARAM_VALUE)
+    
+    final_summary_list.append(final_dict)
     return final_summary_list
 
 

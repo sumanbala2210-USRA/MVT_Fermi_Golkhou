@@ -18,10 +18,76 @@ import itertools
 import pandas as pd
 from typing import Dict, Any
 from email.message import EmailMessage
+import subprocess
+import json
+import tempfile
+import os
+from typing import Dict, Any, Tuple, Callable, List
+
+
+from sim_functions import gaussian2, triangular, constant, norris, fred, lognormal
 # ========= Import necessary libraries =========
 
 
 GMAIL_FILE = 'config_mail.yaml'
+HAAR_ENV_PATH = "/Users/sbala/anaconda3/bin/python"
+WRAPPER_SCRIPT_PATH = os.path.join(os.path.dirname(__file__), 'run_haar_power_mod.py')
+
+
+def run_mvt_in_subprocess(
+    counts: np.ndarray, 
+    bin_width_s: float,
+) -> List:
+    """
+    Runs the haar_power_mod analysis in a separate Python environment.
+
+    This function handles the creation of temporary files, calling the external
+    script via a subprocess, and loading the results.
+
+    Args:
+        counts (np.ndarray): The binned light curve data.
+        bin_width_s (float): The bin width in seconds.
+        python_env_path (str): The full path to the Python executable in the other environment.
+        wrapper_script_path (str): The full path to the 'run_haar_power.py' wrapper script.
+
+    Returns:
+        List: The results from the haar_power_mod function (e.g., [status, n_bins, mvt, mvt_err]).
+              Returns an empty list on failure.
+    """
+    # Use temporary files that are automatically deleted when the block is exited
+    with tempfile.NamedTemporaryFile(suffix='.npy') as tmp_input, \
+         tempfile.NamedTemporaryFile(suffix='.json', mode='w+') as tmp_output:
+        
+        try:
+            # 1. Save the input data to the temporary input file
+            np.save(tmp_input.name, counts)
+            
+            # 2. Construct the command to run the external script
+            command = [
+                HAAR_ENV_PATH,
+                WRAPPER_SCRIPT_PATH,
+                "--input", tmp_input.name,
+                "--output", tmp_output.name,
+                "--min_dt", str(bin_width_s)
+            ]
+            
+            # 3. Run the command
+            # The 'check=True' will raise an error if the external script fails
+            subprocess.run(command, check=True, capture_output=True, text=True)
+
+            # 4. Load the results from the temporary output file
+            tmp_output.seek(0) # Rewind file to the beginning before reading
+            mvt_res = json.load(tmp_output)
+            
+            return mvt_res
+
+        except subprocess.CalledProcessError as e:
+            logging.error(f"Subprocess for MVT calculation failed.")
+            logging.error(f"Stderr: {e.stderr}")
+            return [] # Return empty list on failure
+        except Exception as e:
+            logging.error(f"An unexpected error occurred in run_mvt_in_subprocess: {e}")
+            return []
 
 def send_email(input='!!'):
     msg = EmailMessage()
@@ -41,8 +107,7 @@ def send_email(input='!!'):
         smtp.login(gmail_user, gmail_password)
         smtp.send_message(msg)
 
-from TTE_SIM_v2 import generate_gbm_events, generate_function_events, gaussian2, triangular, constant, norris, fred, lognormal, print_nested_dict#complex_pulse_example
-# Assume your original simulation and helper functions are in a library
+
 
 
 # ========= USER SETTINGS =========
@@ -186,9 +251,12 @@ def _create_param_directory_name(sim_type: str, pulse_shape: str, variable_param
         # In this case, 'angle' is a good candidate for the name.
         if 'angle' in relevant_keys and 'angle' in trigger_info:
             abbr = key_abbreviations['angle']
-            val_str = e_n(trigger_info['angle'])
+            if type(trigger_info['angle']) is float:
+                val_str = e_n(trigger_info['angle'])
+            else:
+                val_str = str(trigger_info['angle'])
             name_parts.append(f"{abbr}_{val_str}")
-    
+
     # --- General Parameter Handling ---
     for key, value in sorted(variable_params.items()):
         # Skip parameters that aren't relevant for this sim type
@@ -224,64 +292,6 @@ def _parse_param(param_config: Any) -> list:
         return [param_config]
     # You might add handling for other types if needed
     raise TypeError(f"Unsupported parameter format in YAML: {param_config}")
-
-
-# NEW: This is our single source of truth!
-def _iterate_parameter_sets(config: Dict[str, Any]) -> 'Generator':
-    """
-    A shared generator that parses the config and yields a complete,
-    consistent set of parameters and the final output path for each simulation.
-    """
-    data_path = Path(config['project_settings']['data_path'])
-    pulse_definitions = config.get('pulse_definitions', {})
-
-    for campaign in config.get('simulation_campaigns', []):
-        if not campaign.get('enabled', False):
-            continue
-
-        sim_type = campaign.get('type')
-
-        for pulse_config in campaign.get('pulses_to_run', []):
-            # --- This section is the merged, clean logic from your old functions ---
-            pulse_shape = pulse_config if isinstance(pulse_config, str) else list(pulse_config.keys())[0]
-            base_pulse_config = pulse_definitions.get(pulse_shape, {})
-            
-            variable_params_config = campaign.get('parameters', {}).copy()
-            variable_params_config.update(base_pulse_config.get('parameters', {}))
-            
-            if 'trigger_set_file' in variable_params_config:
-                df_triggers = pd.read_csv(variable_params_config.pop('trigger_set_file'))
-                variable_params_config['trigger_set'] = df_triggers.to_dict('records')
-
-            final_constants = campaign.get('constants', {}).copy()
-            final_constants.update(base_pulse_config.get('constants', {}))
-            final_constants['pulse_shape'] = pulse_shape
-
-            param_names = list(variable_params_config.keys())
-            param_values = [_parse_param(v) for v in variable_params_config.values()]
-            
-            if not param_values: # Handle cases with no variable params
-                param_values.append(())
-
-            # --- This loop generates each unique simulation task ---
-            for combo in itertools.product(*param_values):
-                current_variable_params = dict(zip(param_names, combo))
-                
-                # --- Define the file path and name ONCE ---
-                filename = _create_param_directory_name(sim_type, pulse_shape, current_variable_params)
-                output_path = data_path / sim_type / pulse_shape / f"{filename}.npz" # For function type
-                
-                # You can add logic for GBM FITS paths here if needed
-                if sim_type == 'gbm':
-                    output_path = data_path / sim_type / pulse_shape / filename # Directory for FITS files
-
-                yield {
-                    "sim_type": sim_type,
-                    "pulse_shape": pulse_shape,
-                    "variable_params": current_variable_params,
-                    "constants": final_constants,
-                    "output_path": output_path, # The one, true path!
-                }
 
 
 

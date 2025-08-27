@@ -22,10 +22,11 @@ from typing import Dict, Any
 # ========= Import necessary libraries =========
 import itertools
 from email.message import EmailMessage
-from SIM_lib import _parse_param, e_n, _create_param_directory_name, PULSE_MODEL_MAP, RELEVANT_NAMING_KEYS, SIMULATION_REGISTRY, write_yaml
+from SIM_lib import _parse_param, e_n, _create_param_directory_name, PULSE_MODEL_MAP, SIMULATION_REGISTRY, write_yaml
 
-from TTE_SIM_v2 import generate_gbm_events, generate_function_events, constant, calculate_adaptive_simulation_params, create_final_plot, create_final_gbm_plot #complex_pulse_example
+from TTE_SIM_v2 import generate_gbm_events, generate_function_events, calculate_adaptive_simulation_params, create_final_plot, create_final_gbm_plot, generate_gbm_events_dets, convert_det_to_list,sim_gbm_name_format #complex_pulse_example
 # Assume your original simulation and helper functions are in a library
+from sim_functions import constant
 
 
 # ========= USER SETTINGS =========
@@ -62,6 +63,9 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
         original_seed = self.params.get('random_seed')
 
         param_dir_name = _create_param_directory_name(sim_type, pulse_shape, self.variable_params)
+
+        dets = convert_det_to_list(self.params['det'])
+        self.params['det'] = dets
         
         # Setup the pulse function and its parameters dynamically
         if pulse_shape not in PULSE_MODEL_MAP:
@@ -91,29 +95,34 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
         details_path = self.output_dir / sim_type / pulse_shape / param_dir_name
         # --- FUNCTION LOGIC: Generate/Append to a combined .npz file ---
         details_path.mkdir(parents=True, exist_ok=True)
-        write_yaml(self.params, details_path / f"{param_dir_name}.yaml")
+        yaml_params = {**self.params, 'name_key': param_dir_name}
+        write_yaml(yaml_params, details_path / f"{param_dir_name}.yaml")
 
         if self.is_gbm:
-            # --- GBM LOGIC: Generate individual FITS files ---
-            base_par_path = details_path / f"{param_dir_name}"
-            #np.savez_compressed(base_par_path, params=self.params)
-
 
             for i in range(NN_target):
                 iteration_seed = original_seed + i
                 sim_params = {**self.params, 'random_seed': iteration_seed}
 
                 # Check for individual files (this is the GBM caching strategy)
-                src_filename = f"{param_dir_name}_r_seed_{iteration_seed}_src.fits"
-                src_file_path = details_path / src_filename # Check for just one of the pair
+                # Ensure it's a list
+                for det in dets:
+                    src_filename, bkgd_filename = sim_gbm_name_format(
+                        trigger_number=self.params['trigger_number'],
+                        det=det,
+                        name_key=param_dir_name,
+                        r_seed=iteration_seed
+                    )
+                    src_file_path = details_path / src_filename # Check for just one of the pair
+                    bkgd_file_path = details_path / bkgd_filename
 
-                if src_file_path.exists():
-                    continue
+                    if src_file_path.exists() and bkgd_file_path.exists():
+                        continue
                 
                 try:
                     # Pass a base path; the gbm function will add _src.fits and _bkgd.fits
                     base_event_path = details_path / f"{param_dir_name}_r_seed_{iteration_seed}"
-                    src_event_file, back_event_file = self.simulation_function(
+                    src_event_list, back_event_list = self.simulation_function(
                         event_file_path=base_event_path,
                         func=func_to_use, func_par=func_par,
                         back_func=constant, back_func_par=(self.params['background_level'],),
@@ -122,8 +131,8 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
                     if i == NN_target - 1:
                         try:
                             create_final_gbm_plot(
-                                src_event_file,
-                                back_event_file,
+                                src_event_list,
+                                back_event_list,
                                 model_info={
                                     'func': func_to_use,
                                     'func_par': func_par,
@@ -132,7 +141,7 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
                                 },
                                 output_info={
                                     'file_path': details_path,
-                                    'file_name': param_dir_name
+                                    'file_info': param_dir_name
                                 }
                             )
                         except Exception as e:
@@ -191,7 +200,7 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
                             },
                             output_info={
                                 'file_path': details_path,
-                                'file_name': param_dir_name
+                                'file_info': param_dir_name
                             }
                         )
                 except Exception as e:
@@ -215,7 +224,7 @@ class AbstractPulseSimulationTask(BaseSimulationTask):
 class GbmSimulationTask(AbstractPulseSimulationTask):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.simulation_function = generate_gbm_events
+        self.simulation_function = generate_gbm_events_dets
         self.is_gbm = True
 
 class FunSimulationTask(AbstractPulseSimulationTask):
